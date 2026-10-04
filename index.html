@@ -2,7 +2,7 @@
 <html lang="zh-Hant-HK">
 <head>
 <meta charset="utf-8">
-<!-- 版本 2026-10-04d（ES 出/回機；由 2026-10-01c 改寫；04b：橫向覆蓋層改由程式判斷；04c：相機影像改為純 CSS 填滿；04d：「除黑邊」按鈕，進入相機畫面時重建影像元素） -->
+<!-- 版本 2026-10-04e（ES 出/回機；由 2026-10-01c 改寫；04b：橫向覆蓋層改由程式判斷；04c：相機影像改為純 CSS 填滿；04d：「除黑邊」按鈕，進入相機畫面時重建影像元素；04e：記錄加入 LEADER 手上EQ、PPS 搜尋、日期搜尋） -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -62,7 +62,22 @@
   /* 倉務確認：讀取日數列及每部機的紀錄 */
   .ackbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
   .ackbar label{display:flex;align-items:center;gap:6px;font-size:15px;white-space:nowrap}
-  .ackbar input{width:6em;padding:6px 8px}
+  .ackbar input{width:4.3em;padding:6px 6px}
+  .ackbar #heldBtn{margin-left:auto;white-space:nowrap}
+  /* 記錄：日期搜尋（兩個日期之間「至」）及查詢結果 */
+  .drange{align-items:center}
+  .drange input{flex:1 1 0;min-width:0;width:auto;font-size:16px;padding:8px 6px;min-height:44px;-webkit-appearance:none;appearance:none;background:#fff;text-align:left}
+  .drange input::-webkit-date-and-time-value{text-align:left}
+  .drange span{flex:none;font-size:15px;color:#374151}
+  #qBox,#logBox{scroll-margin-top:calc(var(--hh) + 6px)}
+  .qrow{border-top:1px solid #e5e7eb;padding:8px 2px 6px;cursor:pointer}
+  .qrow:first-child{border-top:0}
+  .qrow:active{background:#f3f4f6}
+  .qrow .hsn{font-family:ui-monospace,Menlo,monospace;font-weight:bold;font-size:16px;word-break:break-all}
+  .qrow .qd{font-size:13px;color:#374151;line-height:1.45}
+  .qrow .qd span{display:inline-block;margin-right:10px;white-space:nowrap}
+  #manual.logq::placeholder{font-size:14px}
+  .qrow .qs{font-size:13px;margin-top:2px}
   table.cart .hist{display:block;font-size:12px;font-family:inherit;font-weight:normal;color:#374151}
   table.cart .hist.warn{color:#b91c1c;font-weight:bold}
   /* 相機畫面：盡用螢幕高度（扣除頂部、主區上邊距、S/N 輸入列及清單標題預留位置），最少 260 像素。
@@ -179,6 +194,7 @@
     <div id="ackBar" class="ackbar hidden">
       <label>讀取日數<input id="ackDays" type="number" inputmode="numeric" min="1" max="3650" step="1" autocomplete="off"></label>
       <button id="ackLoad" class="small pri">讀取</button>
+      <button id="heldBtn" class="small pri hidden">LEADER 手上EQ</button>
     </div>
     <div class="cam" id="camBox">
       <video id="video" playsinline muted></video>
@@ -193,6 +209,13 @@
     <div class="row">
       <input id="manual" placeholder="輸入機身編號（可用條碼槍）" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
       <button id="lookup" class="pri">加入</button>
+    </div>
+    <div id="logRange" class="row drange hidden">
+      <input id="dFrom" type="date"><span>至</span><input id="dTo" type="date">
+    </div>
+    <div id="qBox" class="card hidden">
+      <div class="carthead"><b id="qTitle"></b><button id="qClear" class="small gray">清除</button></div>
+      <div id="qList"></div>
     </div>
     <div id="cart" class="card">
       <div class="carthead"><b id="cartTitle">清單（0 部）</b><button id="clearAll" class="small gray">清除全部</button></div>
@@ -288,7 +311,7 @@ var 狀態 = { 畫面: 'home', 模式: 'out', 資料: null, 出機索引: {}, �
   串流: null, 計時: 0, 忙: false, 上次碼: '', 上次時間: 0, 候選: '', 候選次: 0, 候選時間: 0, 偵測器: null, 讀取器: null, wasm: false, 準備中: null, 失敗次: 0,
   解像度約束: 相機解像度(), 進階約束: {}, 影像版面: '', 截框資料: null,
   相機序: 0, 啟動中: false, 重試計時: 0, 看門狗: 0, 影像進度: { t: -1, f: -1, at: 0, 查: 0, 靜音起: 0 }, 幀數: 0, 幀起: 0, 幀回呼: 0, 自動重開: 0, 播放受阻: false, 停頓待按: false,
-  燈: false, 聲音: null, 效能: { 級: 0, 平均: 0, 次: 0, 總次: 0 }, 暫停讀取: false, 幀: 0, 工作者: null, 工作者JS: false, 工作序: 0, 工作回呼: {}, 存計時: 0, 清單: null, 清單模式: 'out', 寫入中: false, 新列: '', 記錄: { data: null, 載入中: false, 序: 0, 錯: '', 日數: 60, 顯示: [] }, 回呼序: 0, 查詢: {},
+  燈: false, 聲音: null, 效能: { 級: 0, 平均: 0, 次: 0, 總次: 0 }, 暫停讀取: false, 幀: 0, 工作者: null, 工作者JS: false, 工作序: 0, 工作回呼: {}, 存計時: 0, 清單: null, 清單模式: 'out', 寫入中: false, 新列: '', 記錄: { data: null, 載入中: false, 序: 0, 錯: '', 日數: 60, 顯示: [] }, 回呼序: 0, 查詢: {}, 記查: { 序: 0, 結果: null, 日鍵: '', 日時: 0 },
   專案: null, 專案序: 0, 無相機: false, 自動聚焦: false, 倉資料: null, 倉序: 0, 倉日數: 60, 倉讀取中: false };
 // 各掃描模式：名＝清單標題；pps＝顯示 PPS 欄；原因＝須選回機原因；ot＝顯示 Order Type；動作＝批次寫入的 action
 var 模式表 = {
@@ -420,6 +443,13 @@ function 前往(v) {
     $('ackBar').classList.toggle('hidden', v !== 'ack' && v !== 'log');
     $('cart').classList.toggle('hidden', v === 'log');
     $('logBox').classList.toggle('hidden', v !== 'log');
+    // 記錄：「LEADER 手上EQ」、日期搜尋；輸入列按鈕改為「搜尋」（可輸入機身編號、MAC 或 PPS）
+    $('heldBtn').classList.toggle('hidden', v !== 'log');
+    $('logRange').classList.toggle('hidden', v !== 'log');
+    $('lookup').textContent = v === 'log' ? '搜尋' : '加入';
+    $('manual').placeholder = v === 'log' ? '輸入機身編號或 PPS（可用條碼槍）' : '輸入機身編號（可用條碼槍）';
+    $('manual').classList.toggle('logq', v === 'log');
+    if (v === 'log') 重設查詢(); else $('qBox').classList.add('hidden');
     if (v === 'ack') { $('ackDays').value = localStorage.getItem('scan_ackDays') || 60; 載入倉資料(); }
     $('manual').value = '';
     狀態.暫停讀取 = false; $('pausebox').classList.add('hidden'); $('frame').classList.remove('paused');
@@ -1697,16 +1727,139 @@ function 繪記錄() {
   }
   $('logList').innerHTML = L.顯示.map(function (code) {
     var key = 記錄鍵(code), ev = D && D.h && D.h[key], sn = (D && D.n && D.n[key]) || key;
-    var h = '<div class="hcard"><div class="hsn">' + 轉義(sn) + '</div>' + (code !== key ? '<div class="muted">MAC：' + 轉義(code) + '</div>' : '');
-    if (!D) return h + '<div class="muted">' + (L.載入中 ? '正在讀取記錄…' : '未能讀取記錄') + '</div></div>';
-    if (!ev || !ev.length) return h + '<div class="hist warn" style="color:#b91c1c;font-weight:bold;font-size:14px">' + D.days + ' 日內沒有紀錄</div></div>';
-    var last = ev[ev.length - 1];
-    h += '<div class="now">最新：' + 轉義(last[1]) + '　' + 轉義(last[0]) + (last[2] ? '　' + 轉義(last[2]) : '') + '</div>';
-    return h + ev.map(function (e) {
-      return '<div class="ev"><span class="tag ' + (記錄色[e[1]] || 't-hk') + '">' + 轉義(e[1]) + '</span>' + 轉義(e[0]) +
-        (e[2] ? '　' + 轉義(e[2]) : '') + (e[3] ? '<span class="d">' + 轉義(e[3]) + '</span>' : '') + '</div>';
-    }).join('') + '</div>';
+    if (!D) return 記錄卡(sn, code !== key ? code : '', null, L.載入中 ? '正在讀取記錄…' : '未能讀取記錄');
+    return 記錄卡(sn, code !== key ? code : '', ev, D.days + ' 日內沒有紀錄');
   }).join('');
+}
+/** 一部機的紀錄卡片（記錄及 PPS 搜尋共用）：ev＝null 表示未有資料（顯示 msg）；ev 為空表示沒有紀錄（紅字 msg） */
+function 記錄卡(sn, mac, ev, msg) {
+  var h = '<div class="hcard"><div class="hsn">' + 轉義(sn) + '</div>' + (mac ? '<div class="muted">MAC：' + 轉義(mac) + '</div>' : '');
+  if (!ev) return h + '<div class="muted">' + 轉義(msg) + '</div></div>';
+  if (!ev.length) return h + '<div class="hist warn" style="color:#b91c1c;font-weight:bold;font-size:14px">' + 轉義(msg) + '</div></div>';
+  var last = ev[ev.length - 1];
+  h += '<div class="now">最新：' + 轉義(last[1]) + '　' + 轉義(last[0]) + (last[2] ? '　' + 轉義(last[2]) : '') + '</div>';
+  return h + ev.map(function (e) {
+    return '<div class="ev"><span class="tag ' + (記錄色[e[1]] || 't-hk') + '">' + 轉義(e[1]) + '</span>' + 轉義(e[0]) +
+      (e[2] ? '　' + 轉義(e[2]) : '') + (e[3] ? '<span class="d">' + 轉義(e[3]) + '</span>' : '') + '</div>';
+  }).join('') + '</div>';
+}
+
+/* ---------- 記錄：LEADER 手上EQ、PPS 搜尋、日期搜尋（伺服器只讀查詢，結果顯示於相機下方） ---------- */
+/** 錯誤文字：伺服器未有此操作（未部署新版本）時顯示一般的失敗訊息 */
+function 錯誤文字(e) { var m = (e && e.message) || ''; return /^未知的操作/.test(m) ? '伺服器回應異常' : m || '伺服器回應異常'; }
+/** 香港今日（yyyy-MM-dd） */
+function 香港今日() { return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); }
+function 重設查詢() {
+  var Q = 狀態.記查, t = 香港今日();
+  Q.序++; Q.搜序 = (Q.搜序 || 0) + 1; Q.結果 = null; Q.日鍵 = ''; Q.日時 = 0;
+  ['dFrom', 'dTo'].forEach(function (id) { $(id).value = ''; $(id).max = t; });
+  繪查詢();
+}
+/** 送出查詢；類＝held／range／pps。只顯示最後一次查詢的結果 */
+function 記錄查詢(params, 類) {
+  var Q = 狀態.記查, 序 = ++Q.序;
+  Q.結果 = { 類: 類, p: params, 載入中: true };
+  繪查詢();
+  顯示('正在讀取，請稍候');
+  return 呼叫(params, 60000).then(function (r) {
+    if (序 !== Q.序) return;
+    Q.結果 = { 類: 類, p: params, r: r };
+    繪查詢();
+    顯示(查詢標題(Q.結果), 'ok');
+    捲到查詢();
+  }).catch(function (e) {
+    if (序 !== Q.序) return;
+    Q.結果 = { 類: 類, p: params, 錯: 錯誤文字(e) };
+    繪查詢();
+    顯示(Q.結果.錯, 'err');
+  });
+}
+function 捲到查詢() { try { $('qBox').scrollIntoView({ block: 'start' }); } catch (e) { try { $('qBox').scrollIntoView(); } catch (x) {} } }
+function 手上EQ() {
+  準備聲音();
+  var w = 人員();
+  if (!w.leader) { 顯示('請輸入 LEADER', 'err'); 聚焦人員(); return; }
+  記錄查詢({ action: 'leaderHeld', leader: w.leader }, 'held');
+}
+/** 日期搜尋：兩個日期都選了即自動搜尋（開始日遲於結束日即對調；最遲今日） */
+function 日期改變() {
+  if (狀態.畫面 !== 'scan' || 狀態.模式 !== 'log') return;
+  var f = $('dFrom'), t = $('dTo'), 今 = 香港今日();
+  if (f.value > 今) f.value = 今;
+  if (t.value > 今) t.value = 今;
+  var a = f.value, b = t.value;
+  if (!a || !b) return;
+  if (a > b) { f.value = b; t.value = a; a = f.value; b = t.value; }
+  var w = 人員();
+  if (!w.leader) { 顯示('請輸入 LEADER', 'err'); 聚焦人員(); return; }
+  var Q = 狀態.記查, key = w.leader.toLowerCase() + '|' + a + '|' + b, now = Date.now();
+  if (key === Q.日鍵 && now - Q.日時 < 1500) return;   // 同一次選擇觸發多個事件（input 及 change）只搜尋一次
+  Q.日鍵 = key; Q.日時 = now;
+  記錄查詢({ action: 'leaderRange', leader: w.leader, from: a, to: b }, 'range');
+}
+function 稍後日期改變() { clearTimeout(稍後日期改變.t); 稍後日期改變.t = setTimeout(日期改變, 250); }
+/** 記錄畫面「搜尋」：手機內已有的機身編號／MAC 即時顯示紀錄；否則先向伺服器搜尋 PPS，找不到即照舊以機身編號顯示 */
+function 記錄搜尋(raw) {
+  var code = 正規碼(raw), D = 狀態.記錄.data;
+  if (!code) { 顯示('請輸入機身編號', 'err'); return false; }
+  if ((D && ((D.h && D.h[code]) || (D.m && D.m[code]))) || 狀態.出機索引[code] || 狀態.macMap[code]) return 記錄加入(raw);
+  var Q = 狀態.記查, 序 = Q.搜序 = (Q.搜序 || 0) + 1;   // 與「LEADER 手上EQ」／日期搜尋分開計算：找不到 PPS 時不影響正在顯示的結果
+  顯示('正在讀取，請稍候');
+  呼叫({ action: 'ppsSearch', pps: 原碼(raw) }, 60000).then(function (r) {
+    if (序 !== Q.搜序) return;
+    if (!r.units || !r.units.length) { 記錄加入(raw); return; }
+    Q.序++;
+    Q.結果 = { 類: 'pps', p: { pps: 原碼(raw) }, r: r };
+    繪查詢();
+    提示音(); 閃綠();
+    顯示(查詢標題(Q.結果), 'ok');
+    捲到查詢();
+  }).catch(function (e) {
+    if (序 !== Q.搜序) return;
+    記錄加入(raw);
+    顯示(錯誤文字(e), 'err');
+  });
+  return true;
+}
+function 查詢標題(R) {
+  var r = R.r, n = r && r.rows ? r.rows.length : r && r.units ? r.units.length : 0, 部 = r ? '（' + n + ' 部）' : '';
+  if (R.類 === 'held') return 'LEADER 手上EQ：' + ((r && r.leader) || R.p.leader) + 部;
+  if (R.類 === 'range') return ((r && r.leader) || R.p.leader) + ' 出機：' + ((r && r.from) || R.p.from) + ' 至 ' + ((r && r.to) || R.p.to) + 部;
+  return 'PPS ' + ((r && r.pps) || R.p.pps) + 部;
+}
+/** 日期搜尋結果的狀態：已使用／回機／再出機（其後再出機）／仍在手上 */
+function 查詢狀態(x) {
+  var u = x[6] || '', tag = function (c, t) { return '<span class="tag ' + c + '">' + t + '</span>'; };
+  if (/回機/.test(u)) return tag('t-in', '回機') + 轉義(u.replace(/\s*回機\s*/, ''));
+  if (/^\d{4}-\d{2}-\d{2}/.test(u)) return tag('t-used', '已使用') + 轉義(u);
+  if (u) return 轉義(u);
+  if (x[7]) return tag('t-re', '再出機') + 轉義(x[7] + (x[8] ? '　' + x[8] : ''));
+  return tag('t-out', '仍在手上');
+}
+function 繪查詢() {
+  var R = 狀態.記查.結果, box = $('qBox');
+  box.classList.toggle('hidden', !R || 狀態.模式 !== 'log');
+  if (!R) { $('qList').innerHTML = ''; return; }
+  $('qTitle').textContent = 查詢標題(R);
+  if (R.載入中) { $('qList').innerHTML = '<div class="empty">正在讀取，請稍候</div>'; return; }
+  if (R.錯) { $('qList').innerHTML = '<div class="empty" style="color:#b91c1c">' + 轉義(R.錯) + '</div>'; return; }
+  var r = R.r;
+  if (R.類 === 'pps') {
+    $('qList').innerHTML = r.units.map(function (k) { return 記錄卡((r.n && r.n[k]) || k, '', (r.h && r.h[k]) || [], '沒有紀錄'); }).join('');
+    return;
+  }
+  if (!r.rows || !r.rows.length) { $('qList').innerHTML = '<div class="empty">沒有紀錄</div>'; return; }
+  $('qList').innerHTML = r.rows.map(function (x) {
+    var d = [x[1] ? 'PPS ' + x[1] : '', x[2], x[3] ? '出機 ' + x[3] : '', x[4] ? 'CPE ' + x[4] : ''].filter(Boolean).map(function (t) { return '<span>' + 轉義(t) + '</span>'; }).join('');
+    return '<div class="qrow" role="button" data-sn="' + 轉義(x[0]) + '"><div class="hsn">' + 轉義(x[0]) + '</div><div class="qd">' + d + '</div>' +
+      (R.類 === 'range' ? '<div class="qs">' + 查詢狀態(x) + '</div>' : '') + '</div>';
+  }).join('');
+}
+/** 按查詢結果的一部機：於「已掃描」顯示該機的紀錄卡片 */
+function 查詢選機(sn) {
+  準備聲音();
+  記錄加入(sn);
+  try { $('logBox').scrollIntoView({ block: 'start' }); } catch (e) {}
 }
 
 /* ---------- 綁定 ---------- */
@@ -1730,7 +1883,7 @@ function 手動加入() {
   var el = $('manual');
   準備聲音();
   if (!el.value.trim()) { 顯示('請輸入機身編號', 'err'); 捲到(el, true); return; }
-  加入清單(el.value);
+  if (狀態.模式 === 'log') 記錄搜尋(el.value); else 加入清單(el.value);
   el.value = '';
   if (觸控) el.focus(); else 聚焦輸入();   // 條碼槍（鍵盤模式）可連續掃描
 }
@@ -1767,6 +1920,12 @@ function 讀取日數() { if (狀態.模式 === 'log') 載入記錄(); else 載�
 $('ackLoad').addEventListener('click', 讀取日數);
 $('ackDays').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 讀取日數(); } });
 $('logClear').addEventListener('click', function () { 狀態.記錄.顯示 = []; 繪記錄(); 顯示('已清除'); });
+$('heldBtn').addEventListener('click', 手上EQ);
+$('qClear').addEventListener('click', function () { var Q = 狀態.記查; Q.序++; Q.結果 = null; Q.日鍵 = ''; 繪查詢(); 顯示('已清除'); });
+$('qList').addEventListener('click', function (e) { var r = e.target.closest('.qrow'); if (r) 查詢選機(r.getAttribute('data-sn')); });
+['dFrom', 'dTo'].forEach(function (id) { $(id).addEventListener('change', 稍後日期改變); $(id).addEventListener('input', 稍後日期改變); });
+// 已選日期時更改 LEADER：重新搜尋
+$('leader').addEventListener('change', function () { if ($('dFrom').value && $('dTo').value) { 狀態.記查.日鍵 = ''; 日期改變(); } });
 $('torch').addEventListener('click', function () {
   var t = 相機軌(); if (!t) return;
   var on = !狀態.燈;
@@ -1819,11 +1978,11 @@ function 更新版面() {
   if (h && 更新版面.h !== h) { 更新版面.h = h; document.documentElement.style.setProperty('--hh', h + 'px'); }
   更新相機高度();
 }
-/** 相機畫面高度＝視窗實際高度（window.innerHeight）－相機畫面以上的高度（頂部＋主區上邊距）－相機畫面底至「清單（N 部）」標題列底的距離。
+/** 相機畫面高度＝視窗實際高度（window.innerHeight）－相機畫面以上的高度（頂部＋主區上邊距）－相機畫面底至「清單（N 部）」標題列底（記錄：日期列底）的距離。
  *  即捲回頂部時，相機下方只露出 S/N 輸入列及清單標題列；清單內容（列數、原因選單）不影響相機高度。最少 260 像素。 */
 var 相機最矮 = 260;
 function 更新相機高度() {
-  var cam = $('camBox'), head = 狀態.模式 === 'log' ? $('logHead') : document.querySelector('#cart .carthead');
+  var cam = $('camBox'), head = 狀態.模式 === 'log' ? $('logRange') : document.querySelector('#cart .carthead');
   if (狀態.畫面 !== 'scan' || !cam.offsetHeight || !head) return;
   var vh = window.innerHeight;
   if (!vh) return;
