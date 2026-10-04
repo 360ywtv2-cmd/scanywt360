@@ -2,7 +2,7 @@
 <html lang="zh-Hant-HK">
 <head>
 <meta charset="utf-8">
-<!-- 版本 2026-10-04c（ES 出/回機；由 2026-10-01c 改寫；04b：橫向覆蓋層改由程式判斷；04c：相機影像改為純 CSS 填滿，修正黑邊） -->
+<!-- 版本 2026-10-04d（ES 出/回機；由 2026-10-01c 改寫；04b：橫向覆蓋層改由程式判斷；04c：相機影像改為純 CSS 填滿；04d：「除黑邊」按鈕，進入相機畫面時重建影像元素） -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -42,6 +42,20 @@
   .pm{display:flex;gap:4px;flex:none}
   .nav .pm button{padding:6px 10px}
   .nav .pm button.on{background:#2563eb;color:#fff}
+  /* 相機畫面頂部同時有「返回」「除黑邊」「重新載入資料」（Project 另有出機／回機）：較窄的手機收細按鈕，令標題仍可完整顯示 */
+  @media (max-width: 440px) {
+    .nav{gap:5px}
+    .nav button{padding:6px 7px;font-size:13px}
+    .nav .pm{gap:3px}
+    .nav .pm button{padding:6px 7px}
+    .nav h1{font-size:17px}
+  }
+  @media (max-width: 380px) {
+    .nav{gap:4px}
+    .nav button{padding:6px 6px}
+    .nav .pm{gap:2px}
+    .nav .pm button{padding:6px 5px}
+  }
   .loading{font-size:22px;font-weight:bold;text-align:center;padding:40px 10px;color:#374151;line-height:1.5}
   /* 桌面電腦沒有相機：收起相機畫面，只用條碼槍／手動輸入 */
   .cam.nocam{display:none}
@@ -139,6 +153,7 @@
     <button id="navBack" class="gray hidden" data-back>返回</button>
     <span id="pmode" class="pm hidden"><button data-pm="pout" class="on">出機</button><button data-pm="pin">回機</button></span>
     <h1 id="navTitle">倉務掃描</h1>
+    <button id="fixCam" class="hidden">除黑邊</button>
     <button id="reload">重新載入資料</button>
   </div>
   <div class="who">
@@ -394,6 +409,7 @@ function 前往(v) {
   // 頂部列：主頁只顯示程式名稱；其他畫面顯示「返回」及該畫面標題；Project 另顯示「出機」「回機」切換
   $('navBack').classList.toggle('hidden', 狀態.畫面 === 'home');
   $('pmode').classList.toggle('hidden', v !== 'prj');
+  更新除黑邊();
   $('navTitle').textContent = { home: '倉務掃描', out: '出機', 'in': '回機', ack: '倉務確認', prj: 'Project', mat: '出料', log: '記錄' }[v] || '倉務掃描';
   更新版面();
   window.scrollTo(0, 0);
@@ -413,6 +429,7 @@ function 前往(v) {
     更新版面();
     準備聲音();
     狀態.自動重開 = 0;
+    重建影像();   // 每次進入相機畫面都使用全新的影像元素（避免 iPhone 沿用上次的影像圖層而出現黑邊）
     開始相機();
     安排重排影像();
     聚焦輸入();
@@ -512,7 +529,7 @@ function 開始相機(方式) {
       if (序 !== 狀態.相機序 || 狀態.畫面 !== 'scan' || document.hidden) { 停止串流(stream); return; }
       狀態.啟動中 = false;
       狀態.串流 = stream;
-      if (狀態.無相機) { 狀態.無相機 = false; $('camBox').classList.remove('nocam'); 更新版面(); }
+      if (狀態.無相機) { 狀態.無相機 = false; $('camBox').classList.remove('nocam'); 更新除黑邊(); 更新版面(); }
       var track = stream.getVideoTracks()[0];
       if (track) {
         track.addEventListener('ended', function () { if (序 === 狀態.相機序) 相機異常('相機串流已中斷'); });
@@ -552,6 +569,7 @@ function 無相機(msg) {
   if (觸控) { 顯示(msg + '（仍可手動輸入）', 'err'); return; }
   狀態.無相機 = true;
   $('camBox').classList.add('nocam');
+  更新除黑邊(); 更新版面();
   顯示(msg + '，請使用條碼槍或手動輸入', 'warn');
   聚焦輸入();
 }
@@ -677,6 +695,40 @@ function 確保相機() {
   // 收起鍵盤後相機畫面高度會再改變：稍後再計算一次
   setTimeout(重排影像, 350); setTimeout(重排影像, 900);
 }
+/** 影像元素的事件：影像大小改變（開始、燈、縮放、轉向、解像度改變）或開始播放：重新繪畫；影像尺寸改變（resize）時 iPhone 另強制重設填滿方式 */
+function 綁定影像事件(v) {
+  ['loadedmetadata', 'loadeddata', 'resize', 'playing'].forEach(function (ev) {
+    v.addEventListener(ev, function () { if (v !== $('video')) return; if (ev === 'resize' || ev === 'playing') 狀態.影像版面 = ''; 版面影像(ev === 'resize'); });
+  });
+}
+/** 以全新的影像元素取代舊的（同一 id、class 及屬性；playsinline、muted、autoplay），並綁定事件。
+ *  不改變串流；其他程式（解碼、版面、看門狗）一律以 $('video') 取得影像元素，自動改用新元素。傳回新元素 */
+function 重建影像() {
+  var 舊 = $('video'), 新 = document.createElement('video');
+  for (var i = 0; i < 舊.attributes.length; i++) { var at = 舊.attributes[i]; if (at.name !== 'style') 新.setAttribute(at.name, at.value); }
+  新.setAttribute('playsinline', ''); 新.setAttribute('webkit-playsinline', ''); 新.setAttribute('muted', ''); 新.setAttribute('autoplay', '');
+  新.muted = true; 新.defaultMuted = true; 新.playsInline = true; 新.autoplay = true;
+  if (狀態.幀回呼 && 舊.cancelVideoFrameCallback) { try { 舊.cancelVideoFrameCallback(狀態.幀回呼); } catch (e) {} }
+  狀態.幀回呼 = 0;
+  try { 舊.pause(); } catch (e) {}
+  try { 舊.srcObject = null; } catch (e) {}
+  舊.parentNode.replaceChild(新, 舊);
+  綁定影像事件(新);
+  狀態.影像版面 = '';
+  return 新;
+}
+/** 「除黑邊」：重建影像元素並重新接上目前的串流（串流已中斷、暫停或靜音則重新開啟相機），然後重新播放及重新繪畫。
+ *  燈及縮放屬相機軌，不受影響；解碼自動改用新影像元素 */
+function 除黑邊() {
+  if (狀態.畫面 !== 'scan' || 狀態.無相機) return;
+  重建影像();
+  if (狀態.啟動中) { 安排重排影像(); return; }   // 相機正在開啟：完成後自動接上新影像元素
+  var tr = 相機軌();
+  if (狀態.停頓待按 || !tr || tr.readyState !== 'live' || tr.muted) { 狀態.自動重開 = 0; 開始相機(); 安排重排影像(); return; }
+  接上影像(狀態.串流);
+  if (!狀態.暫停讀取 && !狀態.計時 && !狀態.幀 && !狀態.忙) 迴圈();
+}
+function 更新除黑邊() { $('fixCam').classList.toggle('hidden', 狀態.畫面 !== 'scan' || 狀態.無相機); }
 function 重排影像(強) {
   if (狀態.畫面 !== 'scan') return;
   更新版面();
@@ -1726,17 +1778,15 @@ $('torch').addEventListener('click', function () {
 $('zoom').addEventListener('input', function () {
   var t = 相機軌(); if (t) 套用約束(t, { zoom: Number($('zoom').value) }).then(安排重排影像, function () {});
 });
-['loadedmetadata', 'loadeddata', 'resize', 'playing'].forEach(function (ev) {
-  // 影像大小改變（開始、燈、縮放、轉向、解像度改變）或開始播放：重新繪畫；影像尺寸改變（resize）時 iPhone 另強制重設填滿方式
-  $('video').addEventListener(ev, function () { if (ev === 'resize' || ev === 'playing') 狀態.影像版面 = ''; 版面影像(ev === 'resize'); });
-});
+綁定影像事件($('video'));
 if (window.ResizeObserver) new ResizeObserver(function () { 版面影像(); }).observe($('camBox'));
 $('matSend').addEventListener('click', 送出料);
+$('fixCam').addEventListener('click', 除黑邊);
 /* 使用者操作相機以外的任何地方（清單、輸入框、選單、按鈕）即暫停讀取，避免解碼拖慢操作；按相機畫面繼續 */
 function 操作(e) {
   if (狀態.畫面 !== 'scan' || 狀態.暫停讀取 || 狀態.自動聚焦) return;
   var t = e.target;
-  if (t && t.closest && t.closest('#camBox')) return;   // 相機畫面屬相機控制，不暫停
+  if (t && t.closest && (t.closest('#camBox') || t.closest('#fixCam'))) return;   // 相機畫面及「除黑邊」屬相機控制，不暫停
   暫停讀取();
 }
 document.addEventListener('pointerdown', 操作, true);
@@ -1757,7 +1807,7 @@ document.addEventListener('visibilitychange', function () {
   if (document.hidden) 立即存清單();
   if (狀態.畫面 !== 'scan') return;
   if (document.hidden) 停止相機();
-  else { 狀態.自動重開 = 0; 開始相機(); }
+  else { 狀態.自動重開 = 0; 重建影像(); 開始相機(); }
 });
 window.addEventListener('pageshow', function (e) {
   if (e.persisted && 狀態.畫面 === 'scan' && !document.hidden && !狀態.串流 && !狀態.啟動中) { 狀態.自動重開 = 0; 開始相機(); }
