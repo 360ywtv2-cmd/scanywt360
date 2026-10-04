@@ -1,0 +1,1848 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-HK">
+<head>
+<meta charset="utf-8">
+<!-- 版本 2026-10-04c（ES 出/回機；由 2026-10-01c 改寫；04b：橫向覆蓋層改由程式判斷；04c：相機影像改為純 CSS 填滿，修正黑邊） -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1f2937">
+<title>倉務掃描</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,"PingFang HK","Noto Sans HK","Microsoft JhengHei",sans-serif;background:#f3f4f6;color:#111;font-size:17px}
+  :root{--hh:116px}
+  header{position:sticky;top:0;z-index:5;background:#1f2937;color:#fff;padding:6px 10px;padding-top:max(6px,env(safe-area-inset-top))}
+  /* 頂部列：返回＋標題（左）、重新載入資料（右） */
+  .nav{display:flex;align-items:center;gap:8px;min-height:32px}
+  .nav h1{flex:1;margin:0;font-size:19px;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nav button{padding:6px 12px;font-size:15px;flex:none}
+  .who{display:flex;gap:8px;margin-top:5px}
+  .who label{flex:1;min-width:0;display:flex;align-items:center;gap:5px;font-size:12px;color:#cbd5e1}
+  input,select,textarea{font-size:17px;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#111}
+  .who input{flex:1;min-width:0;font-size:16px;padding:5px 8px;border-radius:6px}
+  /* 狀態文字固定兩行高度，避免頂部高度改變令相機畫面跳動 */
+  #status{margin-top:4px;height:2.6em;font-size:13px;line-height:1.3;word-break:break-all;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+  #status.s-err{color:#fca5a5;font-weight:bold}
+  #status.s-ok{color:#86efac;font-weight:bold}
+  #status.s-warn{color:#fde68a;font-weight:bold}
+  button{font-size:17px;border:0;border-radius:10px;padding:12px 14px;background:#e5e7eb;color:#111;cursor:pointer}
+  button:active{opacity:.7}
+  button:disabled{opacity:.5}
+  .small{padding:8px 10px;font-size:14px}
+  .pri{background:#2563eb;color:#fff}
+  .ok{background:#16a34a;color:#fff}
+  .gray{background:#6b7280;color:#fff}
+  main{padding:10px 12px 12px;padding-bottom:max(24px,env(safe-area-inset-bottom))}
+  .hidden{display:none!important}
+  .home{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .home button{height:32vw;max-height:170px;font-size:28px;font-weight:bold;color:#fff}
+  .b-out{background:#2563eb!important}.b-in{background:#ea580c!important}.b-mat{background:#059669!important}.b-log{background:#4b5563!important}
+  .b-prj{background:#7c3aed!important}.b-ack{background:#0f766e!important}
+  .pm{display:flex;gap:4px;flex:none}
+  .nav .pm button{padding:6px 10px}
+  .nav .pm button.on{background:#2563eb;color:#fff}
+  .loading{font-size:22px;font-weight:bold;text-align:center;padding:40px 10px;color:#374151;line-height:1.5}
+  /* 桌面電腦沒有相機：收起相機畫面，只用條碼槍／手動輸入 */
+  .cam.nocam{display:none}
+  /* 倉務確認：讀取日數列及每部機的紀錄 */
+  .ackbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .ackbar label{display:flex;align-items:center;gap:6px;font-size:15px;white-space:nowrap}
+  .ackbar input{width:6em;padding:6px 8px}
+  table.cart .hist{display:block;font-size:12px;font-family:inherit;font-weight:normal;color:#374151}
+  table.cart .hist.warn{color:#b91c1c;font-weight:bold}
+  /* 相機畫面：盡用螢幕高度（扣除頂部、主區上邊距、S/N 輸入列及清單標題預留位置），最少 260 像素。
+     以下為後備值；實際高度由程式按 window.innerHeight 計算（見「更新相機高度」），清單列數不影響相機高度 */
+  .cam{position:relative;width:100%;height:calc(100vh - var(--hh) - 138px);height:calc(100svh - var(--hh) - 138px);min-height:260px;background:#000;border-radius:12px;overflow:hidden}
+  /* 影像一律填滿相機畫面（cover，置中，裁去多出部分）：影像元素永遠與相機畫面同大，填滿方式完全由 CSS 負責，程式不設定影像元素的位置或大小。
+     （04b 或以前由程式按影像尺寸設定像素位置及大小；iPhone 有時以過時的尺寸繪畫，令影像縮細並四邊出現黑邊，故已取消。）
+     iPhone 於畫面再次顯示或影像尺寸改變後，由程式短暫改變影像元素（見「重繪影像」），迫使 Safari 按目前大小重新繪畫 */
+  .cam video{position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;object-position:50% 50%;display:block;background:#000;transform:none}
+  .frame{position:absolute;left:10%;top:0;bottom:0;margin:auto 0;width:80%;height:25%;min-height:80px;max-height:140px;border:3px solid #22c55e;border-radius:8px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none}
+  .camctl{position:absolute;left:8px;right:8px;bottom:8px;display:flex;gap:8px;align-items:center}
+  .camctl input[type=range]{flex:1;padding:0}
+  .camctl button{background:rgba(255,255,255,.85)}
+  .row{display:flex;gap:8px;margin-top:10px}
+  .row input{flex:1}
+  .card{background:#fff;border-radius:12px;padding:12px;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+  .card label{display:block;font-size:14px;color:#374151;margin-top:8px}
+  .btns{display:flex;gap:8px;margin-top:12px}
+  .btns button{flex:1;padding:16px 8px}
+  .tabs{display:flex;gap:8px}
+  .tabs button{flex:1}
+  .tabs button.on{background:#2563eb;color:#fff}
+  .chk{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:16px}
+  .chk input{width:24px;height:24px}
+  .item{background:#fff;border-radius:10px;padding:10px;margin-top:8px;font-size:15px;line-height:1.5}
+  .tag{display:inline-block;padding:1px 8px;border-radius:6px;color:#fff;font-size:13px;margin-right:6px}
+  .t-out{background:#2563eb}.t-in{background:#ea580c}.t-hk{background:#6b7280}.t-re{background:#7c3aed}.t-used{background:#16a34a}
+  /* 記錄：每部機一張卡片，紀錄按時間由舊至新 */
+  .hcard{border-top:1px solid #e5e7eb;padding:8px 0 4px}
+  .hcard:first-child{border-top:0}
+  .hcard .hsn{font-family:ui-monospace,Menlo,monospace;font-weight:bold;font-size:17px;word-break:break-all}
+  .hcard .now{font-size:14px;font-weight:bold;margin:2px 0 4px}
+  .ev{font-size:14px;line-height:1.45;padding:3px 0;border-top:1px dashed #e5e7eb}
+  .ev .tag{min-width:4.6em;text-align:center}
+  .ev .d{color:#374151;font-size:13px;display:block;padding-left:2px}
+  .mono{font-family:ui-monospace,Menlo,monospace;font-weight:bold}
+  .muted{color:#6b7280;font-size:13px}
+  /* 批次清單 */
+  .frame.paused{border-color:#facc15}
+  .pausebox{position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.55);color:#fff;font-size:22px;font-weight:bold;text-align:center;padding:16px;cursor:pointer}
+  .pausebox .ico{width:64px;height:64px;border-radius:50%;background:#16a34a;display:flex;align-items:center;justify-content:center;font-size:30px;padding-left:5px}
+  .camctl{z-index:3}
+  .flash{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(34,197,94,.45);opacity:0;pointer-events:none;transition:opacity .35s}
+  .flash.on{opacity:1;transition:none}
+  .frame.hit{border-color:#86efac;border-width:5px}
+  .carthead{display:flex;align-items:center;gap:8px}
+  .carthead b{flex:1;font-size:18px}
+  .bulk{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+  .bulk select{flex:1 1 60%;width:auto}
+  .bulk input{flex:1 1 100%}
+  .tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;border:1px solid #e5e7eb;border-radius:8px}
+  table.cart{border-collapse:collapse;width:100%;font-size:15px}
+  table.cart th{background:#f3f4f6;font-weight:600;font-size:13px;color:#374151;text-align:left;padding:6px;white-space:nowrap;position:sticky;top:0}
+  table.cart td{border-top:1px solid #e5e7eb;padding:4px 6px;vertical-align:middle}
+  table.cart td.n{color:#6b7280;text-align:right;width:1%;white-space:nowrap}
+  table.cart td.csn{font-family:ui-monospace,Menlo,monospace;font-weight:bold;font-size:15px;word-break:break-all}
+  table.cart input,table.cart select{font-size:16px;padding:6px;border-radius:6px}
+  table.cart input[type=checkbox]{width:22px;height:22px;padding:0}
+  table.cart td.cpps{width:7.5em}
+  table.cart tr.sub td{border-top:0;padding-top:0}
+  .subf{display:grid;grid-template-columns:1fr 1fr;gap:4px 6px}
+  .subf label{font-size:12px;color:#6b7280;display:block}
+  .subf .wide{grid-column:1 / -1}
+  table.cart .rsx{margin-top:4px}
+  table.cart tr.new td{background:#dcfce7}
+  table.cart tr.bad td{background:#fee2e2}
+  table.cart input.need{border:2px solid #dc2626;background:#fef2f2}
+  table.cart .nf{color:#b45309;font-size:12px;font-family:inherit;font-weight:normal;display:block}
+  table.cart .inf{color:#6b7280;font-size:12px;font-family:inherit;font-weight:normal;display:block}
+  .del{background:#fee2e2;color:#b91c1c;padding:6px 10px;font-size:16px}
+  .empty{color:#6b7280;text-align:center;padding:14px;font-size:15px}
+  #writeAll{width:100%;margin-top:10px;padding:16px 8px;font-size:19px;font-weight:bold}
+  /* 只限直向：橫向時以覆蓋層遮蓋整個畫面（相機串流仍在底下運作）。
+     z-index 用最大值，蓋過所有固定層（包括 Netlify 於網頁加入的標誌框，z-index 2147483645）；
+     外圍陰影向四邊延伸，iPhone 轉向或網址列伸縮期間亦不會露出底下畫面（陰影不影響版面及捲動範圍）。
+     是否橫向由程式判斷並設定 html 的 rot-on／rot-off（見「更新直向提示」）；媒體查詢只作程式執行前的後備 */
+  #rotate{display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:2147483647;background:#111827;box-shadow:0 0 0 200px #111827;color:#fff;align-items:center;justify-content:center;flex-direction:column;gap:12px;font-size:24px;font-weight:bold;text-align:center;padding:20px;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+  #rotate .ico{font-size:56px;transform:rotate(90deg)}
+  @media (orientation: landscape) and (max-height: 600px) { #rotate{display:flex} }
+  html.rot-on #rotate{display:flex!important}
+  html.rot-off #rotate{display:none!important}
+</style>
+</head>
+<body>
+<div id="rotate" role="alert"><div class="ico">📱</div>請將手機轉回直向使用</div>
+<header>
+  <div class="nav">
+    <button id="navBack" class="gray hidden" data-back>返回</button>
+    <span id="pmode" class="pm hidden"><button data-pm="pout" class="on">出機</button><button data-pm="pin">回機</button></span>
+    <h1 id="navTitle">倉務掃描</h1>
+    <button id="reload">重新載入資料</button>
+  </div>
+  <div class="who">
+    <label>LEADER<input id="leader" autocomplete="off"></label>
+    <label>CPE<input id="cpe" autocomplete="off"></label>
+  </div>
+  <div id="status">正在載入資料…</div>
+</header>
+
+<main>
+  <!-- 主頁 -->
+  <section id="v-home" class="home">
+    <button class="b-out" data-go="out">出機</button>
+    <button class="b-in" data-go="in">回機</button>
+    <button class="b-mat" data-go="mat">出料</button>
+    <button class="b-log" data-go="log">記錄</button>
+    <button class="b-prj" data-go="prj">Project</button>
+    <button class="b-ack hidden" id="goAck" data-go="ack">倉務確認</button>
+  </section>
+
+  <!-- 出機／回機／倉務確認／Project -->
+  <section id="v-scan" class="hidden">
+    <div id="ackBar" class="ackbar hidden">
+      <label>讀取日數<input id="ackDays" type="number" inputmode="numeric" min="1" max="3650" step="1" autocomplete="off"></label>
+      <button id="ackLoad" class="small pri">讀取</button>
+    </div>
+    <div class="cam" id="camBox">
+      <video id="video" playsinline muted></video>
+      <div id="flash" class="flash"></div>
+      <div id="frame" class="frame"></div>
+      <div id="pausebox" class="pausebox hidden" role="button"><div class="ico">▶</div>已暫停讀取，按此繼續掃描</div>
+      <div class="camctl">
+        <button id="torch" class="small hidden">燈</button>
+        <input id="zoom" type="range" class="hidden">
+      </div>
+    </div>
+    <div class="row">
+      <input id="manual" placeholder="輸入機身編號（可用條碼槍）" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+      <button id="lookup" class="pri">加入</button>
+    </div>
+    <div id="cart" class="card">
+      <div class="carthead"><b id="cartTitle">清單（0 部）</b><button id="clearAll" class="small gray">清除全部</button></div>
+      <div id="bulk" class="bulk hidden">
+        <select id="bulkReason"></select>
+        <button id="bulkApply" class="small pri">套用原因到已選</button>
+        <input id="bulkOther" class="hidden" placeholder="請輸入原因" maxlength="100" autocomplete="off">
+      </div>
+      <div class="tblwrap">
+        <table class="cart">
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <button id="writeAll" class="ok" disabled>全部寫入（0 部）</button>
+    </div>
+    <div id="logBox" class="card hidden">
+      <div class="carthead" id="logHead"><b id="logTitle">已掃描（0 部）</b><button id="logClear" class="small gray">清除</button></div>
+      <div id="logList"></div>
+    </div>
+  </section>
+
+  <!-- 出料 -->
+  <section id="v-mat" class="hidden">
+    <div class="card">
+      <label>Fiber（米）<input id="fiber" type="number" inputmode="decimal" min="0" step="any" autocomplete="off"></label>
+      <label>SC頭（個）<input id="sc" type="number" inputmode="numeric" min="0" step="1" autocomplete="off"></label>
+      <label>Patch cord<input id="patch" type="number" inputmode="numeric" min="0" step="1" autocomplete="off"></label>
+      <label>Gpon socket<input id="gpon" type="number" inputmode="numeric" min="0" step="1" autocomplete="off"></label>
+      <label>Cat5<input id="cat5" type="number" inputmode="decimal" min="0" step="any" autocomplete="off"></label>
+      <div class="btns"><button id="matSend" class="ok">送出</button></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+/* ======================================================================
+ * ★ 網頁應用程式網址（Web App URL）★
+ * 部署「掃描.gs」（獨立專案）為網頁應用程式後，把網址（https://script.google.com/macros/s/…/exec）貼在下面引號內。
+ * ====================================================================== */
+var 掃描網址 = 'https://script.google.com/macros/s/AKfycbzFYztQq9AowfGRqr1PZRvjQVW7j-IOmq10TGwkD97bowY7L9337CKuJBeow8D5d-aGhg/exec';
+
+// 回機原因選項（按此次序顯示；寫入試算表的文字與此完全相同）。最後一項為自行輸入。
+var 回機原因 = [
+  '收機Order',
+  'Relocate / 升級 收機',
+  '維修換機',
+  '倉出多左冇用',
+  '已用Spare機安裝',
+  '改期 / 取消安裝',
+  '未用Spare機',
+  '壞機 - Out Sync',
+  '壞機 - 冇電唔著',
+  '壞機 - 鍵盤 / 屏幕問題',
+  '壞機 - 其他(請在Remark輸入原因)',
+  'Config問題',
+  '其他（自行輸入）'
+];
+// 選擇以下原因時，該部機的備註必須填寫
+var 須填備註原因 = ['壞機 - 其他(請在Remark輸入原因)'];
+var 自行輸入 = '其他（自行輸入）';
+var 網址上限 = 1900;         // 每個 JSONP 請求網址的長度上限（字元）；超出則分段送出
+var 每段上限 = 30;           // 每段最多部數
+
+var 格式 = ['code_128', 'code_39', 'qr_code'];
+var ZXING網址 = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+// zxing-cpp WebAssembly（無原生 BarcodeDetector 時的主要解碼器，例如 iPhone）
+var WASM腳本網址 = 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/iife/reader/index.js';
+var WASM檔網址 = 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/reader/zxing_reader.wasm';
+var WASM格式 = ['Code128', 'Code39', 'QRCode'];
+var 最短截寬 = 1000;         // 截框寬度不足 1000 像素時放大
+var 最高解像度 = [3840, 2160];
+// 每次開啟相機（包括返回本頁後重新開啟）及每次 applyConstraints（燈、縮放）都使用同一組解像度要求，
+// 避免串流途中改變解像度／比例（iPhone 於串流中途轉換解像度時，影像比例會改變）
+function 相機解像度() { return { width: { ideal: 最高解像度[0] }, height: { ideal: 最高解像度[1] } }; }
+var 解碼間隔 = 200;          // 每秒最多約 5 次（由開始計）
+var 最短間隙 = 60;           // 每次解碼之間最少讓出主執行緒 60 毫秒
+// 自動調節效能（較舊／較慢的手機）：平均解碼時間超過 150 毫秒即降一級，低於 60 毫秒回升一級
+// 每級：截框寬度上限、解碼間隔、每幾次才試加強版影像、每幾次失敗才以 ZXing JS 補試
+var 效能級別 = [
+  { 截寬: Infinity, 間隔: 200, 加強每: 1, 後備每: 3 },
+  { 截寬: 1200, 間隔: 300, 加強每: 3, 後備每: 6 },
+  { 截寬: 1000, 間隔: 450, 加強每: 4, 後備每: 9 }
+];
+var 慢門檻 = 150, 快門檻 = 60;
+var 背景解碼逾時 = 4000;      // Web Worker 單次解碼逾時（毫秒），逾時即改回主執行緒
+var 重讀間隔 = 3000;         // 同一條碼 3 秒內不重讀
+var 最少字數 = 6;            // 少於 6 個字視為誤讀
+var 確認次數 = 2;            // 同一條碼須於 2 秒內讀到 2 次
+
+var 狀態 = { 畫面: 'home', 模式: 'out', 資料: null, 出機索引: {}, 回機索引: {}, macMap: {},
+  串流: null, 計時: 0, 忙: false, 上次碼: '', 上次時間: 0, 候選: '', 候選次: 0, 候選時間: 0, 偵測器: null, 讀取器: null, wasm: false, 準備中: null, 失敗次: 0,
+  解像度約束: 相機解像度(), 進階約束: {}, 影像版面: '', 截框資料: null,
+  相機序: 0, 啟動中: false, 重試計時: 0, 看門狗: 0, 影像進度: { t: -1, f: -1, at: 0, 查: 0, 靜音起: 0 }, 幀數: 0, 幀起: 0, 幀回呼: 0, 自動重開: 0, 播放受阻: false, 停頓待按: false,
+  燈: false, 聲音: null, 效能: { 級: 0, 平均: 0, 次: 0, 總次: 0 }, 暫停讀取: false, 幀: 0, 工作者: null, 工作者JS: false, 工作序: 0, 工作回呼: {}, 存計時: 0, 清單: null, 清單模式: 'out', 寫入中: false, 新列: '', 記錄: { data: null, 載入中: false, 序: 0, 錯: '', 日數: 60, 顯示: [] }, 回呼序: 0, 查詢: {},
+  專案: null, 專案序: 0, 無相機: false, 自動聚焦: false, 倉資料: null, 倉序: 0, 倉日數: 60, 倉讀取中: false };
+// 各掃描模式：名＝清單標題；pps＝顯示 PPS 欄；原因＝須選回機原因；ot＝顯示 Order Type；動作＝批次寫入的 action
+var 模式表 = {
+  out: { 名: '出機', pps: 1, 動作: 'outBatch' },
+  'in': { 名: '回機', pps: 1, 原因: 1, 動作: 'inBatch' },
+  ack: { 名: '倉務確認', 動作: 'ackBatch' },
+  pout: { 名: 'Project 出機', 動作: 'projOutBatch' },
+  pin: { 名: 'Project 回機', 原因: 1, 動作: 'projInBatch' },
+  log: { 名: '記錄' }
+};
+var 預載鍵 = 'es2Preload';   // 新系統專用（不與舊版網頁的資料混用）
+var 記錄日數 = 60;
+// 觸控裝置（手機）：維持原有操作；非觸控（桌面電腦＋條碼槍）：進入掃描畫面即把游標放在輸入框
+var 觸控 = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+
+function $(id) { return document.getElementById(id); }
+function 顯示(text, kind) { var s = $('status'); s.textContent = text; s.className = kind ? 's-' + kind : ''; if (kind === 'err') 錯誤震動(); }
+/** 錯誤震動（Android；iPhone Safari 不支援 navigator.vibrate，自動略過）。顯示錯誤及警示音共用，400 毫秒內只震一次，避免重複震動 */
+function 錯誤震動() {
+  try {
+    if (!navigator.vibrate) return;
+    var ua = navigator.userActivation; if (ua && !ua.hasBeenActive) return;   // 使用者未曾操作前瀏覽器不准震動
+    var t = Date.now(); if (t - 錯誤震動.t < 400) return; 錯誤震動.t = t;
+    navigator.vibrate([60, 60, 60]);
+  } catch (e) {}
+}
+錯誤震動.t = 0;
+/** 錯誤時把有問題的位置捲到畫面中央（瞬間捲動，較慢的手機亦流暢）；聚焦＝同時聚焦輸入框（選單只捲動，不強行打開） */
+function 捲到(el, 聚焦) {
+  if (!el) return;
+  try { el.scrollIntoView({ block: 'center' }); } catch (e) { try { el.scrollIntoView(); } catch (x) {} }
+  if (聚焦) { try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (x) {} } }
+}
+/** LEADER／CPE 位於固定頂部（永遠可見）：毋須捲動，只聚焦空白的一格 */
+function 聚焦人員() { var w = 人員(), el = !w.leader ? $('leader') : $('cpe'); try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }
+function 轉義(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+// 正規碼：只供比對／查找（查 PPS、MAC 轉 S/N、清單重複、字數檢查、重讀確認）；與伺服器「掃描_序號」相同規則
+function 正規碼(s) { return String(s || '').replace(/[\s:\-]/g, '').toUpperCase(); }
+// 原碼：顯示及寫入試算表用的機身編號（保留「-」等原有字元，只去除前後空白並轉為大寫）
+function 原碼(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+function 人員() { return { leader: $('leader').value.trim(), cpe: $('cpe').value.trim() }; }
+function 是管理員() { var w = 人員(); return w.leader.toLowerCase() === 'admin' && w.cpe.toLowerCase() === 'admin'; }
+function 更新管理員() { $('goAck').classList.toggle('hidden', !是管理員()); }
+function 專案模式(m) { m = m || 狀態.模式; return m === 'pout' || m === 'pin'; }
+/** 把游標放在 S/N 輸入框（不觸發暫停讀取）；force＝觸控裝置亦執行 */
+function 聚焦輸入(force) {
+  if (觸控 && !force) return;
+  狀態.自動聚焦 = true;
+  try { $('manual').focus(); } finally { 狀態.自動聚焦 = false; }
+}
+
+/* ---------- JSONP ---------- */
+function 呼叫(params, 逾時) {
+  return new Promise(function (resolve, reject) {
+    if (!/^https:\/\//.test(掃描網址)) { reject(new Error('請先於 index.html 填入網頁應用程式網址')); return; }
+    var cb = 'scanCb' + Date.now() + '_' + (++狀態.回呼序);
+    var el = document.createElement('script');
+    var q = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k] == null ? '' : params[k]); });
+    q.push('callback=' + cb, '_=' + Date.now());
+    var 完 = function () { clearTimeout(t); delete window[cb]; if (el.parentNode) el.parentNode.removeChild(el); };
+    var t = setTimeout(function () { 完(); window[cb] = function () {}; var err = new Error('連線逾時，請再試'); err.連線 = true; reject(err); }, 逾時 || 20000);
+    window[cb] = function (res) {
+      完();
+      if (res && res.ok) resolve(res);
+      else {   // 伺服器明確回覆失敗；「系統繁忙」（未能取得寫入鎖）另標示 繁忙，結果未明
+        var err = new Error((res && res.error) || '伺服器回應異常'); err.伺服器 = true;
+        err.繁忙 = !!(res && (res.busy || /系統繁忙/.test(String(res.error || ''))));
+        reject(err);
+      }
+    };
+    el.onerror = function () { 完(); var err = new Error('連線失敗，請檢查網絡或網址'); err.連線 = true; reject(err); };
+    el.src = 掃描網址 + (掃描網址.indexOf('?') < 0 ? '?' : '&') + q.join('&');
+    document.body.appendChild(el);
+  });
+}
+function 新編號() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+/* ---------- 預載資料 ---------- */
+/** 伺服器傳來的一列 [S/N 原文, MAC, Pps, 型號, Type, Pickup Date, Cpe Pickup Date, Leader, Cpe, Used/Return] → 物件 */
+function 行物件(a) {
+  return { sn: 正規碼(a[0]), snRaw: a[0], mac: a[1] || '', pps: a[2] || '', model: a[3] || '', type: a[4] || '', pick: a[5] || '', h: a[6] || '', l: a[7] || '', c: a[8] || '', u: a[9] || '' };
+}
+/** 加入索引（以正規碼為鍵；可靠的 MAC 加入 MAC 對照） */
+function 加索引(o) {
+  if (!o.sn) return;
+  狀態.出機索引[o.sn] = o;
+  if (o.mac) { var m = 正規碼(o.mac); if (m && m !== o.sn) 狀態.macMap[m] = o.sn; }
+}
+function 建索引(d) {
+  狀態.資料 = d; 狀態.出機索引 = {}; 狀態.回機索引 = {}; 狀態.macMap = {};
+  (d.rows || []).forEach(function (a) { 加索引(行物件(a)); });
+}
+/** 簡述（清單內 S/N 下方顯示）：型號、Type、最近出機日期及人員、Used/Return */
+function 簡述(o) {
+  if (!o) return '';
+  var who = [o.l, o.c].filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('／');
+  return [o.model, o.type, o.h ? '出機 ' + o.h + (who ? ' ' + who : '') : '', o.u ? 'Used/Return：' + o.u : ''].filter(Boolean).join('　');
+}
+function 預載() {
+  顯示('正在載入資料…');
+  $('reload').disabled = true;
+  狀態.查詢 = {};
+  return 呼叫({ action: 'preload' }, 60000).then(function (d) {
+    建索引(d);
+    try { localStorage.setItem(預載鍵, JSON.stringify(d)); } catch (e) {}
+    顯示('資料已載入（HKBN出機LIST 最近 ' + (d.days || 30) + ' 日：' + (d.rows || []).length + ' 部）', 'ok');
+  }).catch(function (e) {
+    顯示(e.message + (狀態.資料 ? '（暫用上次資料）' : ''), 'err');
+  }).then(function () { $('reload').disabled = false; });
+}
+
+/* ---------- 畫面切換 ---------- */
+function 前往(v) {
+  if (v === 'ack' && !是管理員()) { 顯示('倉務確認只限管理員使用', 'err'); return; }
+  if (狀態.畫面 === 'scan') 停止相機();
+  狀態.畫面 = { out: 1, 'in': 1, ack: 1, prj: 1, log: 1 }[v] ? 'scan' : v;
+  ['home', 'scan', 'mat'].forEach(function (n) { $('v-' + n).classList.toggle('hidden', n !== 狀態.畫面); });
+  // 頂部列：主頁只顯示程式名稱；其他畫面顯示「返回」及該畫面標題；Project 另顯示「出機」「回機」切換
+  $('navBack').classList.toggle('hidden', 狀態.畫面 === 'home');
+  $('pmode').classList.toggle('hidden', v !== 'prj');
+  $('navTitle').textContent = { home: '倉務掃描', out: '出機', 'in': '回機', ack: '倉務確認', prj: 'Project', mat: '出料', log: '記錄' }[v] || '倉務掃描';
+  更新版面();
+  window.scrollTo(0, 0);
+  if (狀態.畫面 === 'scan') {
+    狀態.模式 = v === 'prj' ? 'pout' : v;   // Project 預設出機
+    標示專案切換();
+    if (v === 'prj') 載入專案();
+    $('ackBar').classList.toggle('hidden', v !== 'ack' && v !== 'log');
+    $('cart').classList.toggle('hidden', v === 'log');
+    $('logBox').classList.toggle('hidden', v !== 'log');
+    if (v === 'ack') { $('ackDays').value = localStorage.getItem('scan_ackDays') || 60; 載入倉資料(); }
+    $('manual').value = '';
+    狀態.暫停讀取 = false; $('pausebox').classList.add('hidden'); $('frame').classList.remove('paused');
+    if (v === 'log') { $('ackDays').value = 記錄日數; 載入記錄(); }
+    else { 載入清單(); 繪清單(); }
+    // 各區塊顯示切換後再計算相機畫面高度（以往只於切換前計算，用了上一個畫面的版面，相機畫面高度其後才被更正）
+    更新版面();
+    準備聲音();
+    狀態.自動重開 = 0;
+    開始相機();
+    安排重排影像();
+    聚焦輸入();
+  }
+}
+function 標示專案切換() { document.querySelectorAll('[data-pm]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-pm') === 狀態.模式); }); }
+/** Project 內切換出機／回機：各自一份清單，相機保持開啟 */
+function 切換專案(m) {
+  if (狀態.畫面 !== 'scan' || !專案模式() || 狀態.模式 === m) return;
+  狀態.模式 = m;
+  標示專案切換();
+  載入清單();
+  繪清單();
+  聚焦輸入();
+}
+/** 讀取整個 Project 分頁（每次進入 Project 時讀取）；讀取完成前不可加入清單 */
+function 載入專案() {
+  var 序 = ++狀態.專案序;
+  狀態.專案 = null;
+  顯示('正在讀取，請稍候');
+  呼叫({ action: 'project' }, 60000).then(function (r) {
+    if (序 !== 狀態.專案序) return;
+    var idx = {};
+    (r.rows || []).forEach(function (x) { idx[正規碼(x[0])] = { sn: x[0], snRaw: x[0], eq: x[1] }; });
+    狀態.專案 = idx;
+    顯示('Project 資料已載入（' + (r.rows || []).length + ' 部）', 'ok');
+  }).catch(function (e) {
+    if (序 === 狀態.專案序) 顯示('無法讀取 Project：' + e.message + '（請按「重新載入資料」再試）', 'err');
+  }).then(function () {
+    if (序 !== 狀態.專案序 || 狀態.畫面 !== 'scan' || !專案模式()) return;
+    標記專案列(狀態.清單);
+    繪清單();
+  });
+}
+/** 倉務確認：讀取「讀取日數」內各機最後一次回機紀錄（只供顯示，每次進入此畫面或按「讀取」時讀取） */
+function 載入倉資料() {
+  var n = Math.min(Math.max(parseInt($('ackDays').value, 10) || 60, 1), 3650), w = 人員(), 序 = ++狀態.倉序;
+  $('ackDays').value = n;
+  try { localStorage.setItem('scan_ackDays', n); } catch (e) {}
+  狀態.倉資料 = null; 狀態.倉日數 = n; 狀態.倉讀取中 = true; $('ackLoad').disabled = true;
+  顯示('正在讀取，請稍候');
+  if (狀態.清單模式 === 'ack') 繪清單();
+  呼叫({ action: 'ackData', days: n, leader: w.leader, cpe: w.cpe }, 90000).then(function (r) {
+    if (序 !== 狀態.倉序) return;
+    狀態.倉資料 = r;
+    顯示('已讀取 ' + r.days + ' 日內的回機紀錄（' + Object.keys(r.h || {}).length + ' 部）', 'ok');
+  }).catch(function (e) {
+    if (序 === 狀態.倉序) 顯示('無法讀取紀錄：' + e.message + '（請按「讀取」再試）', 'err');
+  }).then(function () {
+    if (序 !== 狀態.倉序) return;
+    狀態.倉讀取中 = false; $('ackLoad').disabled = false;
+    if (狀態.畫面 === 'scan' && 狀態.清單模式 === 'ack') 繪清單();
+  });
+}
+function 人名(x) { return [x[1], x[2]].filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('／') || '（未有人員）'; }
+/** 某部機於回機分頁的紀錄 [回機時間, Leader, Cpe, Pps, 原因／備註, 倉務確認已收/問題]；沒有傳回 null */
+function 倉找(r) {
+  var D = 狀態.倉資料; if (!D) return null;
+  var m = D.m || {}, h = D.h || {};
+  return h[r.sn] || (r.mac && h[r.mac]) || h[m[r.sn]] || (r.mac && h[m[r.mac]]) || null;
+}
+/** 某部機的回機狀態（倉務確認清單顯示用）：h＝HTML；red＝讀取日數內沒有回機紀錄；t＝提示文字 */
+function 倉紀錄(r) {
+  var D = 狀態.倉資料, H = function (t, c) { return '<span class="hist' + (c ? ' ' + c : '') + '">' + 轉義(t) + '</span>'; };
+  if (!D) return { h: H(狀態.倉讀取中 ? '正在讀取紀錄…' : '未能讀取紀錄，請按「讀取」再試') };
+  var e = 倉找(r);
+  if (!e) { var t0 = D.days + ' 日內沒有回機紀錄（寫入時不會更改）'; return { h: H(t0, 'warn'), red: true, t: t0 }; }
+  var 已 = String(e[5] || '').charAt(0) === '✓', 不明 = /不明EQ/.test(e[5] || '');
+  var L = [H('回機：' + e[0] + ' ' + 人名(e) + (e[3] ? '（PPS ' + e[3] + '）' : '') + (e[4] ? ' ' + e[4] : ''))];
+  L.push(H(已 ? '倉務確認：已確認（' + e[5] + '）' : '倉務確認：未確認' + (不明 ? '（不明EQ）' : ''), !已 && 不明 ? 'warn' : ''));
+  return { h: L.join(''), red: false, t: 已 ? '之前已確認' : 不明 ? '不明EQ，未確認' : '回機 ' + e[0] };
+}
+/** 按最新 Project 資料更新清單內各機的「找不到」標示及 EQ */
+function 標記專案列(c) {
+  if (!狀態.專案 || !c) return;
+  c.rows.forEach(function (r) { var o = 狀態.專案[r.sn]; r.nf = o ? 0 : 1; r.eq = o ? o.eq : ''; });
+}
+
+/* ---------- 相機 ---------- */
+// 開啟相機只有「開始相機」一個途徑：首次進入、返回本頁、由背景返回、繼續讀取時發現串流已中斷、影像停頓自動重開，
+// 全部使用同一組解像度要求、同一套填滿（cover）版面及綠框解碼範圍換算。
+// 每次開啟前先完全停止舊串流；以序號作廢尚未完成的舊請求，確保任何時候只有一條串流。
+// 暫停讀取只停止解碼，串流保持開啟（毋須重新開啟相機，繼續讀取即時恢復）。
+var 看門狗間隔 = 500;        // 每 0.5 秒檢查一次相機影像
+var 停頓門檻 = 2000;         // 影像連續約 2 秒沒有前進，即自動重新開啟相機一次
+var 開啟寬限 = 5000;         // 剛開啟相機時，較慢的手機可能需時數秒才有第一幀
+var 靜音門檻 = 8000;         // 系統暫時中斷相機（例如來電、控制中心）時先等候恢復，超過 8 秒才重新開啟
+function 開始相機(方式) {
+  if (!window.isSecureContext) { 無相機('必須以 https 開啟本頁方可使用相機'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { 無相機('此瀏覽器不支援相機'); return; }
+  var 序 = 停止相機();   // 先完全停止舊串流，並作廢尚未完成的舊請求
+  狀態.啟動中 = true;
+  顯示('正在開啟相機…');
+  var 要求 = 相機解像度();
+  navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: 要求.width, height: 要求.height } })
+    .then(function (stream) {
+      if (序 !== 狀態.相機序 || 狀態.畫面 !== 'scan' || document.hidden) { 停止串流(stream); return; }
+      狀態.啟動中 = false;
+      狀態.串流 = stream;
+      if (狀態.無相機) { 狀態.無相機 = false; $('camBox').classList.remove('nocam'); 更新版面(); }
+      var track = stream.getVideoTracks()[0];
+      if (track) {
+        track.addEventListener('ended', function () { if (序 === 狀態.相機序) 相機異常('相機串流已中斷'); });
+        track.addEventListener('unmute', function () { if (序 === 狀態.相機序) { 播放影像(); 重排影像(); } });
+      }
+      接上影像(stream);
+      return 準備解碼器().then(function () {
+        if (序 !== 狀態.相機序) return;
+        提升畫質(track);
+        設定相機控制(track);
+        if (!狀態.播放受阻 && !狀態.停頓待按) 顯示('正在對焦');
+        迴圈();
+      });
+    })
+    .catch(function (e) {
+      if (序 !== 狀態.相機序) return;   // 已被較新的開啟或停止取代
+      狀態.啟動中 = false;
+      if (狀態.畫面 !== 'scan' || document.hidden) return;
+      var n = e && e.name, msg;
+      // 由背景返回或自動重開時，相機可能尚未完全釋放：稍候再試一次
+      if (方式 !== '重試' && (n === 'NotReadableError' || n === 'AbortError' || n === 'TrackStartError')) {
+        狀態.重試計時 = setTimeout(function () {
+          if (序 === 狀態.相機序 && 狀態.畫面 === 'scan' && !document.hidden) 開始相機('重試');
+        }, 800);
+        return;
+      }
+      if (n === 'NotAllowedError' || n === 'SecurityError') msg = '未獲相機權限，請於瀏覽器設定允許使用相機，然後重新進入';
+      else if (n === 'NotFoundError' || n === 'OverconstrainedError') msg = '找不到可用的相機';
+      else if (n === 'NotReadableError') msg = '相機正被其他程式使用，請關閉後再試';
+      else msg = (e && e.message) || String(e);
+      停止相機();
+      無相機(msg);
+    });
+}
+/** 未能使用相機：手機維持原有提示（紅字）；桌面電腦收起相機畫面，提示改用條碼槍，並把游標放在輸入框（不阻擋操作） */
+function 無相機(msg) {
+  if (觸控) { 顯示(msg + '（仍可手動輸入）', 'err'); return; }
+  狀態.無相機 = true;
+  $('camBox').classList.add('nocam');
+  顯示(msg + '，請使用條碼槍或手動輸入', 'warn');
+  聚焦輸入();
+}
+function 停止串流(s) { if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); }
+/** 完全停止相機：停止解碼迴圈、看門狗及全部串流軌道，並作廢尚未完成的開啟請求。傳回新的相機序號 */
+function 停止相機() {
+  狀態.相機序++;
+  狀態.啟動中 = false; 狀態.播放受阻 = false; 狀態.停頓待按 = false;
+  clearTimeout(狀態.重試計時); 狀態.重試計時 = 0;
+  clearTimeout(狀態.計時); 狀態.計時 = 0; cancelAnimationFrame(狀態.幀); 狀態.幀 = 0;
+  停看門狗();
+  停止串流(狀態.串流);
+  狀態.串流 = null; 狀態.燈 = false;
+  var v = $('video');
+  try { v.pause(); } catch (e) {}
+  v.srcObject = null;
+  影像後備版面(v);
+  $('torch').classList.add('hidden'); $('zoom').classList.add('hidden');
+  return 狀態.相機序;
+}
+/** 把串流接上影像元素並播放；重新計算填滿版面，並啟動看門狗 */
+function 接上影像(stream) {
+  var v = $('video');
+  v.muted = true; v.playsInline = true;
+  if (v.srcObject !== stream) v.srcObject = stream;
+  狀態.影像版面 = '';
+  版面影像();
+  安排重排影像();   // 影像尺寸及相機畫面大小可能稍後才確定：稍後再計算
+  播放影像();
+  追蹤幀(v);
+  狀態.幀起 = 狀態.幀數;
+  重設看門狗(開啟寬限);
+  開始看門狗();
+}
+/** 呼叫 video.play()（iPhone 更換 srcObject 後必須再次播放）；被拒絕時提示按相機畫面，下次按畫面時再試 */
+function 播放影像() {
+  var v = $('video');
+  if (!v.srcObject) return;
+  var p;
+  try { p = v.play(); } catch (e) { 播放失敗(e); return; }
+  if (p && p.then) p.then(function () {
+    if (狀態.播放受阻) { 狀態.播放受阻 = false; if (狀態.串流) 顯示('正在對焦'); }
+    版面影像();
+  }, 播放失敗);
+}
+function 播放失敗(e) {
+  if (e && e.name === 'AbortError') return;   // 播放途中更換影像來源，屬正常情況
+  if (狀態.畫面 !== 'scan' || !狀態.串流) return;
+  狀態.播放受阻 = true;
+  console.warn('[掃描] 相機畫面未能播放：' + (e && (e.name || e.message)));
+  顯示('相機畫面未能自動播放，請按一下相機畫面', 'warn');
+}
+/** 以 requestVideoFrameCallback 計算實際顯示的幀數（瀏覽器不支援則只以 currentTime 判斷） */
+function 追蹤幀(v) {
+  if (!v.requestVideoFrameCallback) return;
+  if (狀態.幀回呼 && v.cancelVideoFrameCallback) { try { v.cancelVideoFrameCallback(狀態.幀回呼); } catch (e) {} }
+  var cb = function () { 狀態.幀數++; 狀態.幀回呼 = v.requestVideoFrameCallback(cb); };
+  狀態.幀回呼 = v.requestVideoFrameCallback(cb);
+}
+function 相機可見() { var r = $('camBox').getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && r.top < (window.innerHeight || document.documentElement.clientHeight); }
+function 開始看門狗() { if (!狀態.看門狗) 狀態.看門狗 = setInterval(檢查影像, 看門狗間隔); }
+function 停看門狗() { clearInterval(狀態.看門狗); 狀態.看門狗 = 0; }
+function 重設看門狗(寬限) {
+  var v = $('video'), now = Date.now();
+  狀態.影像進度 = { t: v.currentTime, f: 狀態.幀數, at: now + (寬限 || 0), 查: now, 靜音起: 0 };
+}
+/** 看門狗：影像被系統暫停則再次播放；影像約 2 秒沒有前進（currentTime 及顯示幀數均不變）即重新開啟相機一次；
+ *  同時重新計算填滿版面（暫停讀取期間解碼迴圈停止，由此代替迴圈內的後備計算） */
+function 檢查影像() {
+  var now = Date.now(), p = 狀態.影像進度, 上次 = p.查;
+  p.查 = now;
+  if (狀態.畫面 !== 'scan' || document.hidden || !狀態.串流 || 狀態.啟動中) return;
+  var v = $('video'), tr = 相機軌();
+  if (!tr || tr.readyState === 'ended') { if (!狀態.暫停讀取) 相機異常('相機串流已中斷'); return; }
+  if (v.srcObject !== 狀態.串流) { v.srcObject = 狀態.串流; 狀態.影像版面 = ''; 播放影像(); }
+  else if (v.paused && !狀態.播放受阻) 播放影像();   // 例如 iPhone 於畫面捲離視窗或彈出鍵盤後自行暫停影像
+  版面影像();
+  // 支援 requestVideoFrameCallback 且此串流已有幀顯示：以實際顯示幀數判斷（部分瀏覽器即使影像停頓，currentTime 仍按時鐘前進）；
+  // 否則以 currentTime 判斷
+  var t = v.currentTime, f = 狀態.幀數, 以幀 = f > 狀態.幀起;
+  if (以幀 ? f !== p.f : t !== p.t) {   // 影像有前進
+    p.t = t; p.f = f; p.at = now; p.靜音起 = 0; 狀態.自動重開 = 0;
+    return;
+  }
+  // 計時器被延遲（主執行緒忙碌或瀏覽器節流）、暫停讀取中或等待按畫面時，不作判斷
+  // 相機畫面已捲離視窗時（瀏覽器可能不再繪畫影像）亦不作判斷
+  if (now - 上次 > 看門狗間隔 * 3 || 狀態.暫停讀取 || 狀態.播放受阻 || 狀態.停頓待按 || !相機可見()) { p.at = Math.max(p.at, now); return; }
+  if (tr.muted) {   // 系統暫時中斷相機：先等候恢復
+    if (!p.靜音起) p.靜音起 = now;
+    if (now - p.靜音起 < 靜音門檻) { p.at = Math.max(p.at, now); return; }
+  }
+  if (now - p.at >= 停頓門檻) 相機異常('相機影像停頓');
+}
+/** 串流中斷或影像停頓：自動重新開啟相機一次；重開後仍未恢復則暫停讀取，待使用者按相機畫面再重新開啟 */
+function 相機異常(why) {
+  if (狀態.畫面 !== 'scan' || document.hidden || 狀態.停頓待按) return;
+  if (狀態.自動重開 >= 1) {
+    console.warn('[掃描] ' + why + '，自動重新開啟後仍未恢復');
+    暫停讀取();
+    狀態.停頓待按 = true;
+    顯示('相機畫面停頓，請按相機畫面重新開啟相機（仍可手動輸入）', 'err');
+    return;
+  }
+  狀態.自動重開++;
+  console.warn('[掃描] ' + why + '，自動重新開啟相機');
+  開始相機('自動');
+}
+/** 繼續讀取前確保相機正常：串流已中斷或停頓則以同一途徑重新開啟；否則再次播放並重新計算填滿版面 */
+function 確保相機() {
+  if (狀態.畫面 !== 'scan' || document.hidden) return;
+  狀態.自動重開 = 0;
+  if (狀態.啟動中) return;
+  var tr = 相機軌(), v = $('video');
+  if (狀態.停頓待按 || !tr || tr.readyState !== 'live') { 開始相機(); return; }
+  // 影像曾被系統暫停或已停頓一段時間：重新接上同一條串流（毋須重新開啟相機），令 iPhone 重新建立影像畫面
+  var 停頓 = Date.now() - 狀態.影像進度.at > 1000;
+  if (v.paused || !v.videoWidth || 停頓 || v.srcObject !== 狀態.串流) { v.srcObject = null; v.srcObject = 狀態.串流; }
+  狀態.影像版面 = '';
+  版面影像();
+  播放影像();
+  重設看門狗(v.readyState < 2 ? 開啟寬限 : 0);
+  開始看門狗();
+  // 收起鍵盤後相機畫面高度會再改變：稍後再計算一次
+  setTimeout(重排影像, 350); setTimeout(重排影像, 900);
+}
+function 重排影像(強) {
+  if (狀態.畫面 !== 'scan') return;
+  更新版面();
+  狀態.影像版面 = '';
+  版面影像(強 === true);
+}
+/** 相機畫面每次顯示（進入任何掃描畫面、接上串流、由背景返回、轉回直向）後重新計算填滿版面：
+ *  清除版面記錄，於畫面實際顯示後（之後第二個畫面更新）處理，並於 0.3、1、2.5 秒後補做（1 秒時於 iPhone 強制重設填滿方式，只此一次，避免畫面閃動）
+ *  （較慢的手機及 iPhone 可能稍後才有影像尺寸、轉換影像方向或改變相機畫面高度）。每次呼叫取消上一次尚未執行的補做，不會累積。 */
+function 安排重排影像() {
+  var a = 安排重排影像;
+  if (a.f) cancelAnimationFrame(a.f);
+  (a.ts || []).forEach(clearTimeout);
+  狀態.影像版面 = '';
+  a.f = requestAnimationFrame(function () { a.f = requestAnimationFrame(function () { a.f = 0; 重排影像(); }); });
+  a.ts = [setTimeout(重排影像, 300), setTimeout(function () { 重排影像(true); }, 1000), setTimeout(重排影像, 2500)];
+}
+/** 沒有串流時：清除影像元素的行內樣式（回復 CSS 填滿），並清除版面記錄，下次一定重新檢查 */
+function 影像後備版面(v) {
+  清除影像樣式(v);
+  狀態.影像版面 = '';
+}
+/** 清除影像元素的行內位置／大小／填滿樣式（一律由 CSS 決定；正在重繪中的暫時樣式除外） */
+function 清除影像樣式(v) {
+  var st = v.style;
+  if (st.left) st.left = ''; if (st.top) st.top = ''; if (st.width) st.width = ''; if (st.transform) st.transform = '';
+  if (!重繪影像.f) { if (st.height) st.height = ''; if (st.objectFit) st.objectFit = ''; }
+}
+var 蘋果裝置 = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/** 迫使瀏覽器按影像元素目前大小重新繪畫影像（不改變版面）：影像元素高度暫加 1 像素（多出部分由相機畫面裁去，看不見），
+ *  經兩個畫面更新後還原。強＝iPhone 另把 object-fit 暫改為 fill 再改回 cover，令 Safari 重新設定影像圖層的填滿方式
+ *  （iPhone 相機影像圖層有時未有按目前大小及方向更新）；Android 不需要，不作此步，避免閃動。 */
+function 重繪影像(強) {
+  var v = $('video'), a = 重繪影像;
+  if (a.f || !v.videoWidth) return;
+  v.style.height = 'calc(100% + 1px)';
+  if (強 && 蘋果裝置) v.style.objectFit = 'fill';
+  a.f = requestAnimationFrame(function () {
+    a.f = requestAnimationFrame(function () { a.f = 0; v.style.height = ''; v.style.objectFit = ''; });
+  });
+}
+/** 影像以 cover 方式填滿相機畫面時的幾何資料：縮放比 s = max(框寬/影像寬, 框高/影像高)，偏移 ox、oy（負數＝被裁去的部分） */
+function 覆蓋幾何() {
+  var v = $('video'), r = $('camBox').getBoundingClientRect(), vw = v.videoWidth, vh = v.videoHeight, bw = r.width, bh = r.height;
+  if (!vw || !vh || !bw || !bh) return null;
+  var s = Math.max(bw / vw, bh / vh);
+  return { vw: vw, vh: vh, bw: bw, bh: bh, s: s, dw: vw * s, dh: vh * s, ox: (bw - vw * s) / 2, oy: (bh - vh * s) / 2 };
+}
+/** 影像填滿由 CSS 負責（object-fit: cover，影像元素與相機畫面同大）；此函數不設定影像元素的位置或大小。
+ *  只在影像尺寸（開始、燈、縮放、轉向、解像度改變）或相機畫面大小改變時，清除殘留的行內樣式並迫使重新繪畫。
+ *  數值不變則不作任何改動（每次解碼都會呼叫，須輕巧）。綠框換算為影像像素另由「覆蓋幾何」按數學計算，不依賴影像元素大小。 */
+function 版面影像(強) {
+  var v = $('video'), box = $('camBox');
+  // 相機畫面未顯示（例如已返回主頁，大小為 0）：不作處理並清除記錄，畫面再次顯示時一定重新處理
+  if (!box.offsetWidth || !box.offsetHeight) { 狀態.影像版面 = ''; return; }
+  var key = v.videoWidth + '×' + v.videoHeight + '@' + box.offsetWidth + '×' + box.offsetHeight;
+  if (key === 狀態.影像版面) return;
+  狀態.影像版面 = key;
+  清除影像樣式(v);
+  if (!v.videoWidth) return;
+  重繪影像(強 === true);
+  console.info('[掃描] 影像解像度：' + v.videoWidth + '×' + v.videoHeight + '，相機畫面 ' + box.offsetWidth + '×' + box.offsetHeight + '（以 CSS 填滿）');
+}
+function 設定相機控制(track) {
+  var caps = track && track.getCapabilities ? track.getCapabilities() : {};
+  $('torch').classList.toggle('hidden', !caps.torch);
+  $('torch').textContent = '燈';
+  var z = $('zoom');
+  if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+    z.min = caps.zoom.min; z.max = caps.zoom.max; z.step = caps.zoom.step || 0.1;
+    z.value = (track.getSettings && track.getSettings().zoom) || caps.zoom.min;
+    z.classList.remove('hidden');
+  } else z.classList.add('hidden');
+}
+function 相機軌() { return 狀態.串流 && 狀態.串流.getVideoTracks()[0]; }
+/** applyConstraints 會取代整組約束，故每次都連同解像度及其他進階設定一併送出，以免畫質被降回預設 */
+function 套用約束(track, 更新) {
+  var 原 = {}, 進 = 狀態.進階約束;
+  Object.keys(更新 || {}).forEach(function (k) { 原[k] = 進[k]; 進[k] = 更新[k]; });
+  var c = { width: 狀態.解像度約束.width, height: 狀態.解像度約束.height };
+  c.advanced = Object.keys(進).map(function (k) { var o = {}; o[k] = 進[k]; return o; });
+  return track.applyConstraints(c).catch(function (e) {
+    Object.keys(原).forEach(function (k) { if (原[k] === undefined) delete 進[k]; else 進[k] = 原[k]; });   // 失敗時還原
+    throw e;
+  });
+}
+/** 串流開始後嘗試設定連續對焦（失敗則略過）。
+ *  解像度已於 getUserMedia 一次過要求（與以往串流開始後再提高的最終要求相同），不再於串流中途改變解像度；
+ *  瀏覽器不支援 focusMode（例如 iPhone）則不呼叫 applyConstraints，以免相機重新設定。 */
+function 提升畫質(track) {
+  狀態.解像度約束 = 相機解像度(); 狀態.進階約束 = {};
+  if (!track || !track.applyConstraints) return;
+  var caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (!caps.focusMode || caps.focusMode.indexOf('continuous') < 0) return;
+  套用約束(track, { focusMode: 'continuous' }).catch(function (e) {
+    console.warn('[掃描] 無法設定連續對焦：' + (e && (e.name || e.message)));
+  });
+}
+
+/* ---------- 解碼 ---------- */
+function 載入腳本(src) {
+  return new Promise(function (ok, bad) {
+    var s = document.createElement('script'); s.src = src; s.onload = ok;
+    s.onerror = function () { bad(new Error('無法載入條碼程式庫，請檢查網絡')); };
+    document.head.appendChild(s);
+  });
+}
+function 準備ZXing() {
+  if (狀態.讀取器) return Promise.resolve();
+  return (window.ZXing ? Promise.resolve() : 載入腳本(ZXING網址)).then(function () {
+    var Z = window.ZXing, hints = new Map();
+    hints.set(Z.DecodeHintType.TRY_HARDER, true);   // 與舊版相同：全部格式，TRY_HARDER
+    狀態.讀取器 = new Z.BrowserMultiFormatReader(hints);
+  });
+}
+function 準備WASM() {
+  if (狀態.wasm) return Promise.resolve();
+  return (window.ZXingWASM ? Promise.resolve() : 載入腳本(WASM腳本網址)).then(function () {
+    return window.ZXingWASM.prepareZXingModule({
+      overrides: { locateFile: function (path, prefix) { return /\.wasm$/.test(path) ? WASM檔網址 : prefix + path; } },
+      fireImmediately: true
+    });
+  }).then(function () { 狀態.wasm = true; console.info('[掃描] 已載入 zxing-cpp WebAssembly ' + window.ZXingWASM.ZXING_WASM_VERSION); });
+}
+/* ---------- Web Worker 解碼（zxing-wasm 於背景執行緒；失敗則改回主執行緒） ---------- */
+function 工作者程式() {
+  return 灰階像素.toString() + '\n' + 加強.toString() + '\n(' + function () {
+    var 格式表 = null, 讀取器 = null;
+    /** ZXing JS 後備（於 Worker 內；灰階 ImageData → 亮度陣列；再試旋轉 90 度） */
+    function JS解(img) {
+      var Z = self.ZXing;
+      if (!Z) return '';
+      if (!讀取器) { var hints = new Map(); hints.set(Z.DecodeHintType.TRY_HARDER, true); 讀取器 = new Z.MultiFormatReader(); 讀取器.setHints(hints); }
+      var w = img.width, h = img.height, d = img.data, n = w * h, lum = new Uint8ClampedArray(n), i, x, y;
+      for (i = 0; i < n; i++) lum[i] = d[i * 4];
+      var 試 = function (l, W, H) {
+        try {
+          var r = 讀取器.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.RGBLuminanceSource(l, W, H)))), f = r.getBarcodeFormat(), B = Z.BarcodeFormat;
+          return f === B.CODE_128 || f === B.CODE_39 || f === B.QR_CODE ? r.getText() : '';
+        } catch (e) { return ''; } finally { try { 讀取器.reset(); } catch (e) {} }
+      };
+      var t = 試(lum, w, h);
+      if (t) return t;
+      var rl = new Uint8ClampedArray(n);
+      for (y = 0; y < h; y++) for (x = 0; x < w; x++) rl[x * h + (h - 1 - y)] = lum[y * w + x];
+      return 試(rl, h, w);
+    }
+    function 解(img, 簡) {
+      var o = 簡 ? { formats: 格式表, tryHarder: true, tryRotate: false, tryInvert: false, tryDownscale: false, maxNumberOfSymbols: 1 }
+        : { formats: 格式表, tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
+      return self.ZXingWASM.readBarcodes(img, o).then(function (list) {
+        for (var i = 0; i < list.length; i++) if (list[i].isValid && list[i].text) return list[i].text;
+        return '';
+      });
+    }
+    self.onmessage = function (e) {
+      var m = e.data;
+      if (m.t === 'init') {
+        try {
+          格式表 = m.formats;
+          importScripts(m.js);
+          try { importScripts(m.zx); } catch (e) {}   // ZXing JS 後備（可有可無）
+          self.ZXingWASM.prepareZXingModule({
+            overrides: { locateFile: function (path, prefix) { return /\.wasm$/.test(path) ? m.wasm : prefix + path; } },
+            fireImmediately: true
+          }).then(function () { self.postMessage({ t: 'ready', v: self.ZXingWASM.ZXING_WASM_VERSION, zx: !!self.ZXing }); },
+            function (err) { self.postMessage({ t: 'fail', e: String(err && err.message || err) }); });
+        } catch (err) { self.postMessage({ t: 'fail', e: String(err && err.message || err) }); }
+        return;
+      }
+      if (m.t === 'dec') {
+        var img = new ImageData(new Uint8ClampedArray(m.buf), m.w, m.h);
+        灰階像素(img);
+        解(img).then(function (t) { return t || !m.強 ? t : 解(加強(img, 8, 3), true); })
+          .then(function (t) { return t || !m.強 ? t : 解(加強(img, 10, 5), true); })
+          .then(function (t) { return t || !m.js ? t : JS解(img); })
+          .then(function (t) { self.postMessage({ t: 'res', id: m.id, text: t, buf: img.data.buffer }, [img.data.buffer]); },
+            function (err) { self.postMessage({ t: 'res', id: m.id, text: '', err: String(err), buf: img.data.buffer }, [img.data.buffer]); });
+      }
+    };
+  }.toString() + ')();';
+}
+function 準備工作者() {
+  return new Promise(function (ok, bad) {
+    if (!window.Worker || !window.Blob || !window.URL) { bad(new Error('不支援 Web Worker')); return; }
+    var w, url;
+    try {
+      url = URL.createObjectURL(new Blob([工作者程式()], { type: 'text/javascript' }));
+      w = new Worker(url);
+    } catch (e) { bad(e); return; }
+    var 完 = false;
+    var t = setTimeout(function () { if (!完) { 完 = true; w.terminate(); bad(new Error('Web Worker 載入逾時')); } }, 15000);
+    w.onmessage = function (e) {
+      var m = e.data;
+      if (m.t === 'ready' && !完) { 完 = true; clearTimeout(t); URL.revokeObjectURL(url); 狀態.工作者 = w; 狀態.工作者JS = !!m.zx; console.info('[掃描] 已於 Web Worker 載入 zxing-cpp WebAssembly ' + m.v); ok(); }
+      else if (m.t === 'fail' && !完) { 完 = true; clearTimeout(t); w.terminate(); bad(new Error(m.e)); }
+      else if (m.t === 'res') { var cb = 狀態.工作回呼[m.id]; if (cb) { delete 狀態.工作回呼[m.id]; cb(m); } }
+    };
+    w.onerror = function (e) {
+      if (!完) { 完 = true; clearTimeout(t); w.terminate(); bad(new Error((e && e.message) || 'Web Worker 錯誤')); }
+      else 放棄工作者('Web Worker 錯誤：' + ((e && e.message) || ''));
+    };
+    w.postMessage({ t: 'init', js: WASM腳本網址, wasm: WASM檔網址, zx: ZXING網址, formats: WASM格式 });
+  });
+}
+/** Web Worker 出錯或逾時：停用並改用主執行緒 WebAssembly */
+function 放棄工作者(why) {
+  if (!狀態.工作者) return;
+  console.warn('[掃描] ' + why + '，改用主執行緒解碼');
+  try { 狀態.工作者.terminate(); } catch (e) {}
+  狀態.工作者 = null;
+  var cbs = 狀態.工作回呼; 狀態.工作回呼 = {};
+  Object.keys(cbs).forEach(function (k) { cbs[k]({ text: '', 失敗: true }); });
+  準備WASM().catch(function () {});
+}
+function 工作者解(img, 強, js) {
+  return new Promise(function (ok) {
+    var id = ++狀態.工作序, w = 狀態.工作者;
+    var t = setTimeout(function () { if (狀態.工作回呼[id]) { delete 狀態.工作回呼[id]; ok({ text: '', 失敗: true }); 放棄工作者('Web Worker 解碼逾時'); } }, 背景解碼逾時);
+    狀態.工作回呼[id] = function (m) { clearTimeout(t); ok(m); };
+    w.postMessage({ t: 'dec', id: id, buf: img.data.buffer, w: img.width, h: img.height, 強: 強, js: js }, [img.data.buffer]);
+  });
+}
+function 準備解碼器() {
+  if (狀態.偵測器 || 狀態.wasm || 狀態.工作者) return Promise.resolve();
+  if (狀態.準備中) return 狀態.準備中;
+  var 原生 = 'BarcodeDetector' in window && BarcodeDetector.getSupportedFormats
+    ? BarcodeDetector.getSupportedFormats().catch(function () { return []; }) : Promise.resolve([]);
+  狀態.準備中 = 原生.then(function (sup) {
+    var f = 格式.filter(function (x) { return sup.indexOf(x) >= 0; });
+    if (f.indexOf('code_128') >= 0) { 狀態.偵測器 = new BarcodeDetector({ formats: f }); return; }
+    // 無原生偵測器（例如 iPhone）：以 zxing-cpp WebAssembly 為主（優先於 Web Worker 執行，避免拖慢畫面），ZXing JS 為後備
+    var w = 準備工作者().catch(function (e) {
+      console.warn('[掃描] 無法使用 Web Worker（' + (e && e.message) + '），改於主執行緒解碼');
+      return 準備WASM();
+    }).catch(function (e) { console.warn('[掃描] 無法載入 WebAssembly 解碼器，改用 ZXing JS', e); });
+    var j = 準備ZXing().catch(function (e) { return e; });
+    return Promise.all([w, j]).then(function (r) { if (!狀態.wasm && !狀態.工作者 && r[1]) throw r[1]; });
+  });
+  狀態.準備中.then(function () { 狀態.準備中 = null; }, function () { 狀態.準備中 = null; });
+  return 狀態.準備中;
+}
+/** 只截取綠框內的影像（按 cover 的縮放比及偏移，把綠框位置換算為影像像素座標）；保持原生解像度，不縮小，兩側多取少許空白邊 */
+function 截框(canvas) {
+  var v = $('video'), g = 覆蓋幾何();
+  if (!g) return false;
+  var vw = g.vw, vh = g.vh, s = g.s;
+  // 以綠框實際位置計算（相對相機畫面；相機畫面高度隨螢幕而變）
+  var br = $('camBox').getBoundingClientRect(), fr = $('frame').getBoundingClientRect();
+  var fl = fr.left - br.left - $('camBox').clientLeft, ft = fr.top - br.top - $('camBox').clientTop, fW = fr.width, fH = fr.height;
+  if (!fW || !fH) return false;
+  var fx = (fl - g.ox) / s, fy = (ft - g.oy) / s, fw = fW / s, fh = fH / s;
+  var mx = fw * 0.08, my = fh * 0.1;   // 條碼緊貼框邊時仍保留靜區
+  var sx = Math.max(0, Math.round(fx - mx)), sy = Math.max(0, Math.round(fy - my));
+  var sw = Math.min(vw - sx, Math.round(fw + mx * 2)), sh = Math.min(vh - sy, Math.round(fh + my * 2));
+  if (sw < 8 || sh < 8) return false;
+  var k = sw < 最短截寬 ? 最短截寬 / sw : 1, cap = 效能級別[狀態.效能.級].截寬;
+  if (sw * k > cap) k = cap / sw;   // 慢速手機：限制截框寬度
+  canvas.width = Math.round(sw * k); canvas.height = Math.round(sh * k);
+  var ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  狀態.截框資料 = { 影像: [vw, vh], 畫面: [g.bw, g.bh], 縮放: s, 偏移: [g.ox, g.oy], 綠框: [fl, ft, fW, fH], 綠框影像: [fx, fy, fw, fh], 截取: [sx, sy, sw, sh], 畫布: [canvas.width, canvas.height] };
+  return true;
+}
+/** 轉為灰階並提高對比（1%–99% 亮度拉至 0–255），結果寫回畫布，並傳回 ImageData */
+function 灰階(canvas) {
+  var ctx = canvas.getContext('2d', { willReadFrequently: true });
+  var img = 灰階像素(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  ctx.putImageData(img, 0, 0);
+  return img;
+}
+/** 灰階＋對比拉伸（直接修改 ImageData；亦於 Web Worker 內使用） */
+function 灰階像素(img) {
+  var d = img.data, n = d.length / 4, h = new Uint32Array(256), i, y;
+  var g = new Uint8Array(n);
+  for (i = 0; i < n; i++) { y = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8; g[i] = y; h[y]++; }
+  var lo = 0, hi = 255, c = 0, t = n * 0.01;
+  for (lo = 0; lo < 255; lo++) { c += h[lo]; if (c > t) break; }
+  for (c = 0, hi = 255; hi > 0; hi--) { c += h[hi]; if (c > t) break; }
+  var lut = new Uint8Array(256), r = hi - lo;
+  for (i = 0; i < 256; i++) lut[i] = r > 16 ? Math.max(0, Math.min(255, Math.round((i - lo) * 255 / r))) : i;
+  for (i = 0; i < n; i++) { y = lut[g[i]]; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = y; d[i * 4 + 3] = 255; }
+  return img;
+}
+/** 模糊或摩爾紋時的加強版：沿條紋方向（直向）平均以減少雜訊，再作橫向銳化 */
+function 加強(img, r, s) {
+  var w = img.width, h = img.height, d = img.data, k = w / 1000;
+  var R = Math.max(3, Math.round(r * k)), S = Math.max(2, Math.round(s * k)), A = 1.5;
+  var col = new Float32Array(w), f = new Float32Array(w), pre = new Float32Array(w + 1);
+  var out = new ImageData(w, h), o = out.data, x, y, i, y0, y1;
+  for (y = 0; y < h; y++) {
+    y0 = Math.max(0, y - R); y1 = Math.min(h - 1, y + R);
+    if (y === 0) { col.fill(0); for (i = y0; i <= y1; i++) for (x = 0; x < w; x++) col[x] += d[(i * w + x) * 4]; }
+    else {
+      if (y - R - 1 >= 0) for (x = 0; x < w; x++) col[x] -= d[((y - R - 1) * w + x) * 4];
+      if (y + R <= h - 1) for (x = 0; x < w; x++) col[x] += d[((y + R) * w + x) * 4];
+    }
+    var n = y1 - y0 + 1;
+    for (x = 0; x < w; x++) { f[x] = col[x] / n; pre[x + 1] = pre[x] + f[x]; }
+    for (x = 0; x < w; x++) {
+      var a = Math.max(0, x - S), b = Math.min(w - 1, x + S), m = (pre[b + 1] - pre[a]) / (b - a + 1);
+      var v = f[x] + A * (f[x] - m), j = (y * w + x) * 4;
+      o[j] = o[j + 1] = o[j + 2] = v < 0 ? 0 : v > 255 ? 255 : v; o[j + 3] = 255;
+    }
+  }
+  return out;
+}
+function 旋轉90(src, dst) {
+  dst.width = src.height; dst.height = src.width;
+  var ctx = dst.getContext('2d', { willReadFrequently: true });
+  ctx.setTransform(0, 1, -1, 0, dst.width, 0);
+  ctx.drawImage(src, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return dst;
+}
+function 合格JS(res) {
+  var B = window.ZXing.BarcodeFormat, f = res.getBarcodeFormat();
+  return f === B.CODE_128 || f === B.CODE_39 || f === B.QR_CODE;
+}
+/** ZXing JS（BrowserMultiFormatReader，TRY_HARDER）解畫布 */
+function ZXing解(c) {
+  var Z = window.ZXing, r = 狀態.讀取器;
+  if (!Z || !r) return '';
+  try {
+    var res = r.decodeBitmap(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c))));
+    return 合格JS(res) ? res.getText() : '';
+  } catch (e) { return ''; }
+}
+/** zxing-cpp WebAssembly 解 ImageData（tryHarder、tryRotate、tryInvert） */
+function WASM解(img, 簡) {
+  var o = 簡 ? { formats: WASM格式, tryHarder: true, tryRotate: false, tryInvert: false, tryDownscale: false, maxNumberOfSymbols: 1 }
+    : { formats: WASM格式, tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
+  return window.ZXingWASM.readBarcodes(img, o)
+    .then(function (list) {
+      for (var i = 0; i < list.length; i++) if (list[i].isValid && list[i].text) return list[i].text;
+      return '';
+    });
+}
+var 畫布 = document.createElement('canvas'), 轉畫布 = document.createElement('canvas');
+function 解一次() {
+  if (!截框(畫布)) return Promise.resolve('');
+  if (狀態.偵測器) return 狀態.偵測器.detect(畫布).then(function (r) { return r.length ? r[0].rawValue : ''; });
+  var js = function () { return ZXing解(畫布) || ZXing解(旋轉90(畫布, 轉畫布)); };
+  var 級 = 效能級別[狀態.效能.級], 強 = 狀態.效能.總次 % 級.加強每 === 0, 後備每 = 級.後備每;
+  if (狀態.工作者) {
+    // 灰階、加強及 WebAssembly 解碼全部於 Web Worker 執行；主執行緒只負責截框
+    var ctx = 畫布.getContext('2d', { willReadFrequently: true }), W = 畫布.width, H = 畫布.height;
+    // 每幾次失敗以 ZXing JS 補試一次：Worker 已載入 ZXing JS 則於 Worker 內執行，否則於主執行緒
+    var 後備 = (狀態.失敗次 + 1) % 後備每 === 0, 背景JS = !!狀態.工作者JS;
+    return 工作者解(ctx.getImageData(0, 0, W, H), 強, 後備 && 背景JS).then(function (m) {
+      if (m.text) { 狀態.失敗次 = 0; return m.text; }
+      if (m.失敗) return '';
+      狀態.失敗次++;
+      if (!後備 || 背景JS) return '';
+      if (m.buf) ctx.putImageData(new ImageData(new Uint8ClampedArray(m.buf), W, H), 0, 0);   // 以灰階影像補試 ZXing JS
+      return js();
+    });
+  }
+  var img = 灰階(畫布);
+  if (!狀態.wasm) return Promise.resolve(js());
+  return WASM解(img).then(function (t) {
+    return t || !強 ? t : WASM解(加強(img, 8, 3), true);    // 未能讀取時再試加強版影像（兩種銳化幅度；慢速手機每幾次才試）
+  }).then(function (t) {
+    return t || !強 ? t : WASM解(加強(img, 10, 5), true);
+  }).then(function (t) {
+    if (t) { 狀態.失敗次 = 0; return t; }
+    return ++狀態.失敗次 % 後備每 === 0 ? js() : '';   // WebAssembly 未能讀取時，每 3 次（慢速手機較少）以 ZXing JS 補試一次
+  }, function () { return js(); });
+}
+function 找資料(code) {
+  var sn = 正規碼(狀態.macMap[code]) || code, m = 狀態.模式;
+  if (m === 'out' || m === 'in' || m === 'ack') return 狀態.出機索引[sn] || 狀態.查詢[sn] || 狀態.查詢[code] || null;
+  return 狀態.專案 && (狀態.專案[sn] || 狀態.專案[code]);
+}
+/** 下一次解碼：先以 setTimeout 讓出主執行緒，再於下一個畫面更新時（requestAnimationFrame）執行，確保不會重疊 */
+function 排程下次(t0) {
+  clearTimeout(狀態.計時); cancelAnimationFrame(狀態.幀);
+  var 間隔 = Math.max(解碼間隔, 效能級別[狀態.效能.級].間隔);
+  狀態.計時 = setTimeout(function () { 狀態.計時 = 0; 狀態.幀 = requestAnimationFrame(迴圈); }, Math.max(最短間隙, 間隔 - (Date.now() - t0)));
+}
+/** 記錄每次解碼所需時間（移動平均），按需要自動升降效能級別 */
+function 記錄解碼時間(dt) {
+  var e = 狀態.效能;
+  e.總次++; e.次++;
+  e.平均 = e.次 === 1 ? dt : e.平均 * 0.8 + dt * 0.2;
+  if (e.次 < 8) return;
+  var 舊 = e.級;
+  if (e.平均 > 慢門檻 && e.級 < 效能級別.length - 1) e.級++;
+  else if (e.平均 < 快門檻 && e.級 > 0 && e.次 >= 25) e.級--;
+  if (e.級 !== 舊) {
+    console.info('[掃描] 平均解碼時間 ' + Math.round(e.平均) + ' 毫秒，效能級別 ' + 舊 + ' → ' + e.級);
+    e.次 = 0;
+  }
+}
+function 迴圈() {
+  clearTimeout(狀態.計時); cancelAnimationFrame(狀態.幀); 狀態.計時 = 0; 狀態.幀 = 0;
+  if (狀態.畫面 !== 'scan' || !狀態.串流 || 狀態.暫停讀取 || document.hidden) return;   // 暫停時停止迴圈；繼續讀取時重新啟動
+  var t0 = Date.now();
+  版面影像();   // 後備：部分瀏覽器於影像大小改變時未必發出 resize 事件
+  var 未備 = !狀態.偵測器 && !狀態.wasm && !狀態.工作者 && !狀態.讀取器;
+  if (狀態.忙 || 未備 || $('video').readyState < 2) { 排程下次(t0); return; }
+  狀態.忙 = true;
+  var 開始 = performance.now();
+  解一次().then(function (txt) {
+    狀態.忙 = false;
+    記錄解碼時間(performance.now() - 開始);
+    var code = 正規碼(txt);
+    if (code.length < 最少字數) code = '';
+    if (code && !狀態.暫停讀取 && 狀態.畫面 === 'scan') {
+      var now = Date.now();
+      if (code === 狀態.候選 && now - 狀態.候選時間 < 2000) 狀態.候選次++; else { 狀態.候選 = code; 狀態.候選次 = 1; }
+      狀態.候選時間 = now;
+      if (狀態.候選次 >= 確認次數 && !(code === 狀態.上次碼 && now - 狀態.上次時間 < 重讀間隔)) {
+        狀態.上次碼 = code; 狀態.上次時間 = now; 狀態.候選 = ''; 狀態.候選次 = 0;
+        加入清單(txt);   // 傳入原始讀取文字（保留「-」）；比對仍以正規碼進行。不暫停，相機繼續掃描
+      }
+    }
+    排程下次(t0);
+  }, function () { 狀態.忙 = false; 排程下次(t0); });
+}
+/** 暫停／繼續讀取：只停止解碼，相機串流保持開啟（看門狗繼續確保影像播放及填滿版面） */
+function 暫停讀取() {
+  if (狀態.暫停讀取) return;
+  狀態.暫停讀取 = true; 狀態.候選 = ''; 狀態.候選次 = 0;
+  clearTimeout(狀態.計時); cancelAnimationFrame(狀態.幀); 狀態.計時 = 0; 狀態.幀 = 0;
+  $('pausebox').classList.remove('hidden'); $('frame').classList.add('paused');
+}
+function 繼續讀取() {
+  狀態.暫停讀取 = false;
+  $('pausebox').classList.add('hidden'); $('frame').classList.remove('paused');
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
+  確保相機();
+  迴圈();
+}
+
+/* ---------- 提示 ---------- */
+function 準備聲音() {
+  try {
+    if (狀態.聲音 && 狀態.聲音.state === 'closed') 狀態.聲音 = null;
+    if (!狀態.聲音) { var A = window.AudioContext || window.webkitAudioContext; if (A) 狀態.聲音 = new A(); }
+    // suspended，或 iPhone 來電／轉到背景後的 interrupted：於使用者操作時恢復
+    if (狀態.聲音 && 狀態.聲音.state !== 'running') { var p = 狀態.聲音.resume(); if (p && p.catch) p.catch(function () {}); }
+  } catch (e) {}
+}
+/** iPhone 須於使用者操作時建立／恢復 AudioContext：首次按畫面任何地方即準備聲音，聲音可用後移除監聽 */
+function 解鎖聲音() {
+  準備聲音();
+  if (狀態.聲音 && 狀態.聲音.state === 'running') ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (t) { document.removeEventListener(t, 解鎖聲音, true); });
+}
+['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (t) { document.addEventListener(t, 解鎖聲音, true); });
+/** 成功提示音：柔和「叮」聲（880 Hz 正弦波＋0.15 倍 1760 Hz 泛音，8 毫秒起音，指數衰減，共 0.25 秒，音量 0.35） */
+function 提示音() {
+  try {
+    var a = 狀態.聲音;
+    if (a) {
+      var t = a.currentTime, 長 = 0.25, g = a.createGain(), h = a.createGain(), o = a.createOscillator(), o2 = a.createOscillator();
+      o.type = 'sine'; o.frequency.value = 880;
+      o2.type = 'sine'; o2.frequency.value = 1760; h.gain.value = 0.15;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.35, t + 0.008);
+      g.gain.setTargetAtTime(0.0001, t + 0.008, 長 / 6);   // 相當於 exp(-t×6/0.25)
+      o.connect(g); o2.connect(h); h.connect(g); g.connect(a.destination);
+      o.start(t); o2.start(t); o.stop(t + 長); o2.stop(t + 長);
+    }
+  } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate(80);
+}
+function 警示音() {
+  try {
+    var a = 狀態.聲音;
+    if (a) {
+      var o = a.createOscillator(), g = a.createGain();
+      o.frequency.value = 440; g.gain.value = 0.2;
+      o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + 0.25);
+    }
+  } catch (e) {}
+  錯誤震動();   // 與顯示錯誤共用，不會重複震動
+}
+function 閃綠() {
+  var f = $('flash'), fr = $('frame');
+  f.classList.add('on'); fr.classList.add('hit');
+  clearTimeout(閃綠.t);
+  閃綠.t = setTimeout(function () { f.classList.remove('on'); fr.classList.remove('hit'); }, 150);
+}
+
+/* ---------- 批次清單（出機／回機各自一份，存於 localStorage） ---------- */
+function 清單鍵(m) { return 'es2Cart_' + (m || 狀態.模式); }
+function 載入清單() {
+  立即存清單();
+  var m = 狀態.模式, c = null;
+  try { c = JSON.parse(localStorage.getItem(清單鍵(m)) || 'null'); } catch (e) {}
+  if (!c || !Array.isArray(c.rows)) c = { rows: [], seq: 0, pend: null };
+  狀態.清單 = c; 狀態.清單模式 = m;
+  if (專案模式(m)) 標記專案列(c);
+}
+function 存清單() {
+  clearTimeout(狀態.存計時); 狀態.存計時 = 0; 狀態.待存 = null;
+  try { localStorage.setItem(清單鍵(狀態.清單模式), JSON.stringify(狀態.清單)); } catch (e) { 顯示('無法儲存清單（瀏覽器儲存空間不足）', 'err'); }
+}
+/** 編輯時延遲約 300 毫秒才儲存，避免每次按鍵都寫入 localStorage */
+function 稍後存清單() {
+  狀態.待存 = { m: 狀態.清單模式, c: 狀態.清單 };
+  clearTimeout(狀態.存計時);
+  狀態.存計時 = setTimeout(立即存清單, 300);
+}
+function 立即存清單() {
+  var p = 狀態.待存;
+  clearTimeout(狀態.存計時); 狀態.存計時 = 0; 狀態.待存 = null;
+  if (p) try { localStorage.setItem(清單鍵(p.m), JSON.stringify(p.c)); } catch (e) { 顯示('無法儲存清單（瀏覽器儲存空間不足）', 'err'); }
+}
+/** 某部機在表格內的列（回機有兩列） */
+function 列元素(sn) {
+  return Array.prototype.filter.call($('tbody').rows, function (tr) { return tr.getAttribute('data-sn') === sn; });
+}
+function 找列(sn) { var r = 狀態.清單.rows; for (var i = 0; i < r.length; i++) if (r[i].sn === sn) return r[i]; return null; }
+/** 清單列的顯示／寫入值（舊版清單未有 disp，沿用 sn） */
+function 顯示碼(r) { return (r && r.disp) || (r && r.sn) || ''; }
+/** 決定顯示／寫入的 S/N：預載資料有相符紀錄且帶原有格式（例如「-」）則採用資料原樣；
+ *  否則掃描內容本身即為 S/N 時採用掃描原文；掃描的是 MAC 則採用資料內對應的 S/N */
+function 選顯示碼(raw, code, sn, info) {
+  if (info && info.snRaw && 正規碼(info.snRaw) === sn) return String(info.snRaw).trim();
+  var 存 = String((info ? info.sn : 狀態.macMap[code]) || '').trim();
+  if (存 && 存 !== sn && 正規碼(存) === sn) return 存;
+  if (code === sn) return 原碼(raw) || sn;
+  return 存 || sn;
+}
+
+/** 把條碼加入清單：MAC 轉 S/N、查預載資料；已在清單則略過；資料內找不到亦直接加入（PPS 留空，可自行填寫） */
+function 加入清單(raw) {
+  var code = 正規碼(raw);
+  if (!code) { 顯示('請輸入機身編號', 'err'); return false; }
+  if (狀態.模式 === 'log') return 記錄加入(raw);
+  if (!狀態.清單) 載入清單();
+  if (專案模式() && !狀態.專案) { 顯示('正在讀取 Project 資料，請稍候再掃描', 'warn'); 警示音(); return false; }
+  var S = 模式表[狀態.清單模式];
+  // sn＝比對用鍵（正規碼）；disp＝清單顯示及寫入試算表的值
+  var info = 找資料(code), sn = 正規碼((info && info.sn) || 狀態.macMap[code]) || code;
+  var 舊列 = 找列(sn);
+  if (舊列) { 顯示('此機已在清單中：' + 顯示碼(舊列), 'warn'); return false; }
+  var disp = 選顯示碼(raw, code, sn, info);
+  var c = 狀態.清單, row = { no: ++c.seq, sn: sn, pps: (info && info.pps) || '' };
+  if (disp && disp !== sn) row.disp = disp;
+  if (sn !== code) row.mac = code;
+  var 搜尋 = !info && (狀態.清單模式 === 'out' || 狀態.清單模式 === 'in') && !(code in 狀態.查詢);
+  if (搜尋) row.wait = 1;
+  else if (!info && 狀態.清單模式 !== 'ack') row.nf = 1;
+  if (info && info.eq) row.eq = info.eq;
+  if (info && !專案模式()) row.inf = 簡述(info);
+  if (S.原因) { row.rs = ''; row.rsx = ''; row.rm = ''; }
+  c.rows.push(row);
+  存清單();
+  狀態.新列 = sn;
+  繪清單();
+  提示音(); 閃綠();
+  var 倉 = 狀態.清單模式 === 'ack' ? 倉紀錄(row) : null;
+  if (倉 && 倉.red) 警示音();
+  if (搜尋) { 搜尋較舊(狀態.清單模式, row.sn, code); return true; }
+  顯示('已加入第 ' + row.no + ' 項：' + 顯示碼(row) + 附註(row, S, 倉) + '　清單共 ' + c.rows.length + ' 部', row.nf || (倉 && 倉.red) ? 'warn' : 'ok');
+  return true;
+}
+/** 加入清單後狀態列的附註 */
+function 附註(row, S, 倉) {
+  if (倉) return 倉.t ? '　' + 倉.t : '';
+  if (!S.pps) return row.nf ? '　Project 內找不到，寫入時將新增一列' : '';
+  if (row.nf) return S.原因 ? '　HKBN出機LIST 找不到，寫入時將標示為不明EQ' : '　HKBN出機LIST 找不到，請自行填寫 PPS';
+  return row.pps ? '　PPS：' + row.pps : '　（沒有 PPS）';
+}
+/** 修改某模式清單內的一列（該清單正在使用即直接修改並重繪；否則修改已儲存的清單）。fn 傳回 false 即刪除該列 */
+function 改列(m, sn, fn) {
+  var 用中 = 狀態.清單模式 === m && 狀態.清單, c = 用中 ? 狀態.清單 : null;
+  if (!c) { try { c = JSON.parse(localStorage.getItem(清單鍵(m)) || 'null'); } catch (e) {} }
+  if (!c || !Array.isArray(c.rows)) return null;
+  var r = null;
+  c.rows.forEach(function (x) { if (x.sn === sn) r = x; });
+  if (!r) return null;
+  if (fn(r, c) === false) c.rows = c.rows.filter(function (x) { return x !== r; });
+  if (用中) { 存清單(); if (狀態.畫面 === 'scan') 繪清單(); }
+  else try { localStorage.setItem(清單鍵(m), JSON.stringify(c)); } catch (e) {}
+  return r;
+}
+/** 預載資料（最近 30 日）找不到：向伺服器搜尋較舊的 HKBN出機LIST 記錄；仍找不到即標示（回機寫入時列為不明EQ） */
+function 搜尋較舊(m, sn, code) {
+  顯示('正在搜尋較舊記錄，請稍候…', 'warn');
+  var 完 = function (info, err) {
+    var S = 模式表[m], msg = '', kind = 'ok';
+    var r = 改列(m, sn, function (r, c) {
+      delete r.wait;
+      if (!info) { r.nf = 1; if (err) r.lf = 1; return; }
+      var k = 正規碼(info.sn);
+      if (k !== r.sn) {
+        if (c.rows.some(function (x) { return x !== r && x.sn === k; })) { msg = '此機已在清單中：' + (info.snRaw || k); kind = 'warn'; return false; }
+        r.mac = r.mac || r.sn; r.sn = k;
+      }
+      if (info.snRaw && 正規碼(info.snRaw) === r.sn && info.snRaw !== r.sn) r.disp = info.snRaw;
+      if (!String(r.pps || '').trim()) r.pps = info.pps || '';
+      r.inf = 簡述(info) + '（較舊記錄）';
+    });
+    if (!r) { if (msg) 顯示(msg, kind); return; }
+    if (!msg) {
+      msg = '已加入第 ' + r.no + ' 項：' + 顯示碼(r) + 附註(r, S, null) + (err ? '（未能搜尋較舊記錄：' + err.message + '）' : '');
+      kind = r.nf ? 'warn' : 'ok';
+    }
+    if (r.nf) 警示音();
+    if (狀態.畫面 === 'scan' && 狀態.清單模式 === m) 顯示(msg, kind);
+  };
+  呼叫({ action: 'lookup', sn: code }, 30000).then(function (res) {
+    var info = res.found && res.row ? 行物件(res.row) : null;
+    狀態.查詢[code] = info;
+    if (info) { 狀態.查詢[info.sn] = info; 加索引(info); }
+    完(info, null);
+  }).catch(function (e) { 完(null, e); });
+}
+function 刪除列(sn) {
+  var c = 狀態.清單, 名 = 顯示碼(找列(sn)) || sn;
+  c.rows = c.rows.filter(function (r) { return r.sn !== sn; });
+  if (!c.rows.length) c.seq = 0;
+  存清單(); 繪清單();
+  顯示('已刪除：' + 名);
+}
+function 清除全部() {
+  var c = 狀態.清單;
+  if (!c.rows.length) return;
+  if (!confirm('確定清除清單內全部 ' + c.rows.length + ' 部？（尚未寫入）')) return;
+  c.rows = []; c.seq = 0;
+  存清單(); 繪清單();
+  顯示('已清除清單');
+}
+function 原因選項(sel) {
+  return '<option value="">（請選擇原因）</option>' + 回機原因.map(function (o) {
+    return '<option value="' + 轉義(o) + '"' + (o === sel ? ' selected' : '') + '>' + 轉義(o) + '</option>';
+  }).join('');
+}
+function 列原因(r) { return r.rs === 自行輸入 ? String(r.rsx || '').trim() : (r.rs || ''); }
+function 欠備註(r) { return 須填備註原因.indexOf(r.rs) >= 0 && !String(r.rm || '').trim(); }
+function 列有誤(r) { return !列原因(r) || 欠備註(r); }
+/** 備註必填時以紅框提示 */
+function 更新備註提示(r) {
+  列元素(r.sn).forEach(function (tr) {
+    var m = tr.querySelector('[data-f=rm]');
+    if (!m) return;
+    var need = 須填備註原因.indexOf(r.rs) >= 0;
+    m.classList.toggle('need', need && !String(r.rm || '').trim());
+    m.placeholder = need ? '必須填寫備註' : '';
+  });
+}
+function 更新按鈕() {
+  var c = 狀態.清單, n = c.rows.length;
+  $('cartTitle').textContent = 模式表[狀態.清單模式].名 + '清單（' + n + ' 部）';
+  var w = $('writeAll');
+  w.textContent = 狀態.寫入中 ? '正在寫入…' : '全部寫入（' + n + ' 部）';
+  w.disabled = 狀態.寫入中 || (!n && !c.pend);
+  $('clearAll').disabled = !n;
+}
+function 繪清單() {
+  var c = 狀態.清單, S = 模式表[狀態.清單模式], 回 = !!S.原因;
+  $('bulk').classList.toggle('hidden', !回);
+  // 回機每部分兩行：上行 #、S/N、PPS；下行 備註、回機原因（手機直向毋須左右捲動）
+  $('thead').innerHTML = '<tr>' + (回 ? '<th><input type="checkbox" id="chkAll" aria-label="全選"></th>' : '') +
+    '<th>#</th><th>S/N</th>' + (S.pps ? '<th>PPS</th>' : '') + '<th></th></tr>';
+  var cols = 3 + (回 ? 1 : 0) + (S.pps ? 1 : 0);
+  var 空 = 專案模式(狀態.清單模式) && !狀態.專案 ? '<div class="loading">正在讀取 Project 資料，請稍候</div>' :
+    狀態.清單模式 === 'ack' && 狀態.倉讀取中 ? '<div class="loading">正在讀取，請稍候</div>' : '清單未有機器，請對準條碼掃描';
+  // 最新加入的排最上（緊貼相機下方）；# 為掃描次序，寫入試算表時按 # 次序
+  $('tbody').innerHTML = !c.rows.length ? '<tr><td class="empty" colspan="' + cols + '">' + 空 + '</td></tr>' :
+    c.rows.slice().reverse().map(function (r) {
+      var sn = 轉義(r.sn);
+      var 倉 = 狀態.清單模式 === 'ack' ? 倉紀錄(r) : null;
+      var nw = (r.sn === 狀態.新列 ? ' new' : '') + (倉 && 倉.red ? ' bad' : '');
+      var h = '<tr class="main' + nw + '" data-sn="' + sn + '">';
+      if (回) h += '<td><input type="checkbox" data-f="chk"' + (r.chk ? ' checked' : '') + '></td>';
+      h += '<td class="n">' + r.no + '</td><td class="csn">' + 轉義(顯示碼(r)) +
+        (r.mac ? '<span class="nf">MAC：' + 轉義(r.mac) + '</span>' : '') + (r.eq ? '<span class="inf">EQ：' + 轉義(r.eq) + '</span>' : '') +
+        (r.inf ? '<span class="inf">' + 轉義(r.inf) + '</span>' : '') +
+        (r.wait ? '<span class="nf">正在搜尋較舊記錄，請稍候…</span>' : '') +
+        (r.nf ? '<span class="nf">' + (!S.pps ? 'Project 內找不到（將新增）' : S.原因 ? 'HKBN出機LIST 找不到（將標示為不明EQ）' : 'HKBN出機LIST 找不到') + '</span>' : '') + (倉 ? 倉.h : '') + '</td>' +
+        (S.pps ? '<td class="cpps"><input data-f="pps" inputmode="numeric" autocomplete="off" placeholder="PPS" value="' + 轉義(r.pps) + '"></td>' : '') +
+        '<td><button class="del" data-del aria-label="刪除">✕</button></td></tr>';
+      if (回) {
+        h += '<tr class="sub' + nw + '" data-sn="' + sn + '"><td></td><td colspan="' + (cols - 1) + '"><div class="subf">' +
+          '<label>備註<input data-f="rm" maxlength="200" autocomplete="off"' + (須填備註原因.indexOf(r.rs) >= 0 ? ' placeholder="必須填寫備註"' + (欠備註(r) ? ' class="need"' : '') : '') + ' value="' + 轉義(r.rm) + '"></label>' +
+          '<label class="wide">回機原因<select data-f="rs">' + 原因選項(r.rs) + '</select>' +
+          '<input class="rsx' + (r.rs === 自行輸入 ? '' : ' hidden') + '" data-f="rsx" maxlength="100" placeholder="請輸入原因" autocomplete="off" value="' + 轉義(r.rsx) + '"></label>' +
+          '</div></td></tr>';
+      }
+      return h;
+    }).join('');
+  狀態.新列 = '';
+  更新按鈕();
+}
+/** 表格內輸入：直接更新清單資料（不重繪，保持輸入焦點） */
+function 表格輸入(e) {
+  var el = e.target, f = el.getAttribute('data-f'), tr = el.closest('tr');
+  if (!f || !tr) return;
+  var r = 找列(tr.getAttribute('data-sn')); if (!r) return;
+  if (f === 'chk') r.chk = el.checked;
+  else r[f] = el.value;
+  if (f === 'rs') {
+    var x = tr.querySelector('[data-f=rsx]');
+    x.classList.toggle('hidden', el.value !== 自行輸入);
+    if (el.value === 自行輸入 && e.type === 'change') x.focus();
+  }
+  if (f === 'rs' || f === 'rsx' || f === 'rm') {
+    更新備註提示(r);
+    if (!列有誤(r)) 列元素(r.sn).forEach(function (x) { x.classList.remove('bad'); });
+  }
+  稍後存清單();
+}
+function 套用原因() {
+  var v = $('bulkReason').value, x = $('bulkOther').value.trim();
+  if (!v) { 顯示('請先選擇要套用的原因', 'err'); return; }
+  if (v === 自行輸入 && !x) { 顯示('請輸入原因', 'err'); $('bulkOther').focus(); return; }
+  var sel = 狀態.清單.rows.filter(function (r) { return r.chk; });
+  if (!sel.length) { 顯示('請先剔選要套用原因的機器', 'err'); return; }
+  // 只更新受影響的列，不重繪整個表格
+  sel.forEach(function (r) {
+    r.rs = v; r.rsx = v === 自行輸入 ? x : ''; r.chk = false;
+    列元素(r.sn).forEach(function (tr) {
+      tr.classList.toggle('bad', 欠備註(r));
+      var c = tr.querySelector('[data-f=chk]'), s1 = tr.querySelector('[data-f=rs]'), s2 = tr.querySelector('[data-f=rsx]');
+      if (c) c.checked = false;
+      if (s1) s1.value = v;
+      if (s2) { s2.value = r.rsx; s2.classList.toggle('hidden', v !== 自行輸入); }
+    });
+  });
+  sel.forEach(更新備註提示);
+  var ca = $('chkAll'); if (ca) ca.checked = false;
+  存清單();
+  顯示('已套用原因到 ' + sel.length + ' 部', 'ok');
+}
+
+/* ---------- 批次寫入 ---------- */
+function 網址長(params) {
+  return 掃描網址.length + 70 + Object.keys(params).reduce(function (n, k) { return n + k.length + 2 + encodeURIComponent(params[k] == null ? '' : params[k]).length; }, 0);
+}
+/** 把清單轉為分段：出機 [S/N, PPS]；回機 [S/N, PPS, ORDER TYPE 字典序, REASON 字典序, 備註]（每段附字串字典 d，縮短網址） */
+function 分段(kind, rows) {
+  var chunks = [], cur = null;
+  var 新段 = function () { cur = { items: [], d: [] }; chunks.push(cur); };
+  var 回 = !!模式表[kind].原因;
+  var 參數 = function (ck) { var p = { action: 模式表[kind].動作, bid: 'x'.repeat(14), n: 99, of: 99, items: JSON.stringify(ck.items), leader: $('leader').value, cpe: $('cpe').value }; if (回) p.d = JSON.stringify(ck.d); return p; };
+  rows.forEach(function (r) {
+    if (!cur) 新段();
+    var 試 = function (ck) {
+      var t = { items: ck.items.slice(), d: ck.d.slice() };
+      var 字 = function (v) { v = String(v || '').trim(); var i = t.d.indexOf(v); if (i < 0) { t.d.push(v); i = t.d.length - 1; } return i; };
+      var pps = String(r.pps || '').trim();
+      var 碼 = 顯示碼(r);   // 寫入試算表的 S/N（保留「-」）
+      t.items.push(回 ? [碼, pps, 字(''), 字(列原因(r)), String(r.rm || '').trim()] : [碼, pps]);
+      return t;
+    };
+    var t = 試(cur);
+    if (cur.items.length && (cur.items.length >= 每段上限 || 網址長(參數(t)) > 網址上限)) { 新段(); t = 試(cur); }
+    cur.items = t.items; cur.d = t.d;
+  });
+  return chunks;
+}
+function 全部寫入() {
+  if (狀態.寫入中) return;
+  var w = 人員();
+  if (!w.leader || !w.cpe) { 顯示('請輸入 LEADER 及 CPE', 'err'); 聚焦人員(); return; }
+  var c = 狀態.清單, kind = 狀態.清單模式, 重送 = !!c.pend, S = 模式表[kind];
+  if (kind === 'ack' && !是管理員()) { 顯示('倉務確認只限管理員使用', 'err'); return; }
+  if (!重送) {
+    if (!c.rows.length) { 顯示('清單未有機器', 'err'); window.scrollTo(0, 0); 聚焦輸入(); return; }
+    if (S.原因) {
+      var 缺 = c.rows.filter(function (r) { return !列原因(r); }), 欠 = c.rows.filter(欠備註);
+      if (缺.length || 欠.length) {
+        var 號 = function (a) { return a.map(function (r) { return r.no; }).join('、'); };
+        document.querySelectorAll('#tbody tr[data-sn]').forEach(function (tr) { var r = 找列(tr.getAttribute('data-sn')); tr.classList.toggle('bad', !!r && 列有誤(r)); });
+        欠.forEach(更新備註提示);
+        var msg = [];
+        if (缺.length) msg.push('尚有 ' + 缺.length + ' 部未選擇回機原因（第 ' + 號(缺) + ' 項）');
+        if (欠.length) msg.push('第 ' + 號(欠) + ' 項的原因須於備註說明，請填寫備註');
+        顯示(msg.join('；') + '，然後再寫入', 'err');
+        警示音();
+        捲到問題列(缺.concat(欠));
+        return;
+      }
+    }
+    // 待送批次：寫入完成前保留同一批次編號，逾時重試時伺服器只回覆上次結果，不會重複寫入
+    c.pend = { bid: 新編號(), sns: c.rows.map(function (r) { return r.sn; }), chunks: 分段(kind, c.rows) };
+    存清單();
+  }
+  var pend = c.pend, of = pend.chunks.length, 模式 = kind;
+  狀態.寫入中 = true; 更新按鈕();
+  var 送段 = function (i, 最後) {
+    var ck = pend.chunks[i], p = { action: S.動作, bid: pend.bid, n: i, of: of, items: JSON.stringify(ck.items) };
+    if (S.原因) p.d = JSON.stringify(ck.d);
+    if (最後) { p.leader = w.leader; p.cpe = w.cpe; if (模式 === 'ack') p.days = 狀態.倉日數; }
+    顯示((重送 ? '正在重送上次未確認的批次（' + pend.sns.length + ' 部）…' : '正在寫入 ' + pend.sns.length + ' 部…') + (of > 1 ? '（' + (i + 1) + '／' + of + '）' : ''));
+    return 呼叫(p, 最後 ? 60000 : 30000);
+  };
+  var 已送 = {};   // 本次已成功暫存的分段（重試時毋須重送）
+  var 依次 = function (list) {
+    return list.reduce(function (pr, i) { return pr.then(function () { return 送段(i, false).then(function () { 已送[i] = 1; }); }); }, Promise.resolve());
+  };
+  var 前段 = []; for (var i = 0; i < of - 1; i++) 前段.push(i);
+  var 最後段 = function (次) {
+    return 送段(of - 1, true).then(function (r) {
+      if (r.need && r.need.length) {   // 伺服器暫存已失效：重送缺少的分段
+        if (次 >= 2) throw new Error('伺服器暫存資料遺失，請再按「全部寫入」重試');
+        return 依次(r.need).then(function () { return 最後段(次 + 1); });
+      }
+      return r;
+    });
+  };
+  // 寫入期間使用者可能已離開或重新進入此畫面：以最新的清單物件為準
+  var 當前 = function () {
+    if (狀態.清單模式 === 模式 && 狀態.清單) return 狀態.清單;
+    try { var x = JSON.parse(localStorage.getItem(清單鍵(模式)) || 'null'); if (x && Array.isArray(x.rows)) return x; } catch (e) {}
+    return c;
+  };
+  // 系統繁忙、連線逾時或失敗（結果未明）：保留同一批次編號，自動重試最多 3 次（伺服器按批次編號防止重複寫入）
+  var 重試延遲 = [3000, 5000, 8000];
+  var 嘗試 = function (次) {
+    return 依次(前段.filter(function (i) { return !已送[i]; })).then(function () { return 最後段(0); }).catch(function (e) {
+      if (!(e.繁忙 || e.連線) || 次 >= 重試延遲.length) throw e;
+      顯示((e.繁忙 ? '系統繁忙' : '連線未能完成') + '，正在重試（第 ' + (次 + 1) + ' 次）…', 'warn');
+      return new Promise(function (ok) { setTimeout(ok, 重試延遲[次]); }).then(function () { return 嘗試(次 + 1); });
+    });
+  };
+  嘗試(0).then(function (r) {
+    var 集 = {}; pend.sns.forEach(function (s) { 集[s] = 1; });
+    var 清 = 當前();
+    清.rows = 清.rows.filter(function (x) { return !集[x.sn]; });
+    if (!清.rows.length) 清.seq = 0;
+    清.pend = null;
+    try { localStorage.setItem(清單鍵(模式), JSON.stringify(清)); } catch (e) {}
+    var n = r.count != null ? r.count : pend.sns.length, 注意 = false;
+    var msg = '已寫入 ' + n + ' 部 ✓';
+    if (模式 === 'out') {
+      var 附 = [];
+      if (r.stockRemoved != null) 附.push('庫存已移除 ' + r.stockRemoved + ' 部');
+      if (r.notInStock) 附.push('庫存內找不到 ' + r.notInStock + ' 部');
+      if (r.notFound) 附.push('HKBN出機LIST 找不到 ' + r.notFound + ' 部');
+      if (附.length) msg += '（' + 附.join('；') + '）';
+      注意 = !!r.notFound;
+    } else if (模式 === 'in') {
+      if (r.unknown) msg += '（HKBN出機LIST 找不到 ' + r.unknown + ' 部，已標示為不明EQ）';
+      注意 = !!r.unknown;
+    } else if (模式 === 'ack') {
+      var nf = r.notFound || [];
+      msg = '已確認 ✓ ' + (r.acked || 0) + ' 部' + (r.ackedUnknown ? '（其中不明EQ ' + r.ackedUnknown + ' 部）' : '') + (r.already ? '；之前已確認 ' + r.already + ' 部' : '') +
+        (nf.length ? '　' + (r.days || 狀態.倉日數) + ' 日內沒有回機紀錄 ' + nf.length + ' 部，未有寫入：' + nf.join('、') : '');
+      注意 = !!nf.length;
+      var D = 狀態.倉資料;
+      if (D) pend.sns.forEach(function (s) { var e = 倉找({ sn: s }); if (e && String(e[5] || '').charAt(0) !== '✓') e[5] = '✓' + (e[5] ? ' ' + e[5] : ''); });
+    } else if (專案模式(模式)) {
+      msg += '（更新 ' + (r.updated || 0) + ' 部' + (r.added ? '；新增 ' + r.added + ' 部，已以黃色標示' : '') + '）';
+      if (狀態.專案) pend.sns.forEach(function (s) { if (!狀態.專案[s]) 狀態.專案[s] = { sn: s, snRaw: s, eq: '' }; });
+    }
+    if (r.skipped) msg += '（略過重複 ' + r.skipped + ' 部）';
+    if (r.warns && r.warns.length) msg += '　注意：' + r.warns.map(function (x) { return x.sn + ' ' + x.text; }).join('；');
+    if (清.rows.length) msg += '　清單尚有 ' + 清.rows.length + ' 部未寫入';
+    if (狀態.畫面 === 'scan' && 狀態.清單模式 === 模式) 繪清單();
+    顯示(msg, 注意 || (r.warns && r.warns.length) ? 'warn' : 'ok');
+    提示音();
+  }).catch(function (e) {
+    // 伺服器明確回覆失敗＝未有寫入，下次重新建立批次；系統繁忙、連線逾時或失敗＝結果未明，保留批次編號以便安全重試
+    var 清 = 當前();
+    if (e.伺服器 && !e.繁忙) 清.pend = null;
+    try { localStorage.setItem(清單鍵(模式), JSON.stringify(清)); } catch (x) {}
+    顯示('寫入失敗：' + e.message + '　清單已保留，請再按「全部寫入」重試', 'err');
+    警示音();
+  }).then(function () {
+    狀態.寫入中 = false;
+    if (狀態.畫面 === 'scan') 更新按鈕();
+  });
+}
+
+/** 捲到項目編號最小的問題列：欠原因 → 選單只捲動（自行輸入則聚焦原因輸入框）；欠備註 → 聚焦備註 */
+function 捲到問題列(list) {
+  var r = null;
+  list.forEach(function (x) { if (!r || x.no < r.no) r = x; });
+  if (!r) return;
+  var trs = 列元素(r.sn), tr = trs[trs.length - 1];
+  if (!tr) return;
+  var 框 = null, 聚焦 = false;
+  if (!列原因(r)) {
+    框 = r.rs === 自行輸入 ? tr.querySelector('[data-f=rsx]') : tr.querySelector('[data-f=rs]');
+    聚焦 = r.rs === 自行輸入;
+  } else if (欠備註(r)) { 框 = tr.querySelector('[data-f=rm]'); 聚焦 = true; }
+  if (!聚焦) { var a = document.activeElement; if (a && a !== document.body && a.blur) a.blur(); }   // 收起鍵盤，免遮蓋選單
+  捲到(框 || tr, 聚焦);
+}
+
+/* ---------- 出料 ---------- */
+var 出料項 = [['fiber', 'Fiber', ' 米'], ['sc', 'SC頭', ' 個'], ['patch', 'Patch cord', ''], ['gpon', 'Gpon socket', ''], ['cat5', 'Cat5', '']];
+function 送出料() {
+  var w = 人員();
+  if (!w.leader || !w.cpe) { 顯示('請輸入 LEADER 及 CPE', 'err'); 聚焦人員(); return; }
+  var p = { action: 'matSend', leader: w.leader, cpe: w.cpe, rid: 新編號() }, 有 = [], 錯 = null;
+  出料項.forEach(function (x) {
+    var el = $(x[0]), v = String(el.value || '').trim();
+    if (!錯 && el.validity && el.validity.badInput) 錯 = el;
+    if (!v) { p[x[0]] = ''; return; }
+    var n = Number(v);
+    if (!isFinite(n) || n < 0) { if (!錯) 錯 = el; return; }
+    p[x[0]] = n;
+    if (n > 0) 有.push(x[1] + ' ' + n + x[2]);
+  });
+  if (錯) { 顯示('數量必須為 0 或正數', 'err'); 捲到(錯, true); return; }
+  if (!有.length) { 顯示('請至少輸入一項出料數量', 'err'); 捲到($('fiber'), true); return; }
+  $('matSend').disabled = true;
+  顯示('正在寫入…');
+  呼叫(p).then(function () {
+    顯示('已寫入 ✓ ' + 有.join('／'), 'ok');
+    出料項.forEach(function (x) { $(x[0]).value = ''; });
+  }).catch(function (e) { 顯示(e.message, 'err'); })
+    .then(function () { $('matSend').disabled = false; });
+}
+
+/* ---------- 記錄（以相機或手動輸入掃描機身編號，顯示該機於「讀取日數」內的完整紀錄） ----------
+ * 進入時一次過讀取全部紀錄（預設 60 日），之後每次掃描只於手機上查找，毋須連線，較慢的手機亦即時顯示。 */
+var 記錄上限 = 20;   // 最多保留最近掃描的 20 部
+function 載入記錄() {
+  var L = 狀態.記錄, n = Math.min(Math.max(parseInt($('ackDays').value, 10) || 記錄日數, 1), 3650), 序 = ++L.序;
+  $('ackDays').value = n;
+  L.日數 = n; L.data = null; L.錯 = ''; L.載入中 = true; $('ackLoad').disabled = true;
+  顯示('正在讀取 ' + n + ' 日內的記錄，請稍候');
+  繪記錄();
+  呼叫({ action: 'log', days: n }, 90000).then(function (r) {
+    if (序 !== L.序) return;
+    L.data = r;
+    顯示('已讀取 ' + r.days + ' 日內的記錄（' + Object.keys(r.h || {}).length + ' 部），請掃描機身編號', 'ok');
+  }).catch(function (e) {
+    if (序 !== L.序) return;
+    L.錯 = e.message;
+    顯示('無法讀取記錄：' + e.message + '（請按「讀取」再試）', 'err');
+  }).then(function () {
+    if (序 !== L.序) return;
+    L.載入中 = false; $('ackLoad').disabled = false;
+    if (狀態.畫面 === 'scan' && 狀態.模式 === 'log') 繪記錄();
+  });
+}
+/** 掃描碼 → 紀錄鍵（S/N 正規碼；MAC 轉為 S/N） */
+function 記錄鍵(code) {
+  var D = 狀態.記錄.data, h = (D && D.h) || {}, m = (D && D.m) || {};
+  if (h[code]) return code;
+  if (m[code]) return m[code];
+  var s = 正規碼(狀態.macMap[code]);
+  return s || code;
+}
+function 記錄加入(raw) {
+  var L = 狀態.記錄, code = 正規碼(raw), key = 記錄鍵(code);
+  L.顯示 = L.顯示.filter(function (x) { return 記錄鍵(x) !== key; });
+  L.顯示.unshift(code);
+  if (L.顯示.length > 記錄上限) L.顯示.length = 記錄上限;
+  繪記錄();
+  提示音(); 閃綠();
+  var D = L.data, ev = D && D.h && D.h[key];
+  if (!D) 顯示('已掃描：' + 原碼(raw) + '　記錄仍在讀取中，完成後會自動顯示', 'warn');
+  else if (!ev) { 顯示('已掃描：' + 原碼(raw) + '　' + D.days + ' 日內沒有此機的紀錄', 'warn'); 警示音(); }
+  else 顯示('已掃描：' + ((D.n && D.n[key]) || 原碼(raw)) + '　共 ' + ev.length + ' 項紀錄（' + D.days + ' 日內）', 'ok');
+  return true;
+}
+var 記錄色 = { 'HKBN出機': 't-hk', '出機': 't-out', '再出機': 't-re', '已使用': 't-used', '回機': 't-in' };
+function 繪記錄() {
+  var L = 狀態.記錄, D = L.data;
+  $('logTitle').textContent = '已掃描（' + L.顯示.length + ' 部）';
+  $('logClear').disabled = !L.顯示.length;
+  if (!L.顯示.length) {
+    $('logList').innerHTML = '<div class="empty">' + (L.載入中 ? '正在讀取記錄，請稍候（可先掃描）' : !D ? 轉義('未能讀取記錄' + (L.錯 ? '：' + L.錯 : '') + '，請按「讀取」再試') : '請對準條碼掃描，或輸入機身編號') + '</div>';
+    return;
+  }
+  $('logList').innerHTML = L.顯示.map(function (code) {
+    var key = 記錄鍵(code), ev = D && D.h && D.h[key], sn = (D && D.n && D.n[key]) || key;
+    var h = '<div class="hcard"><div class="hsn">' + 轉義(sn) + '</div>' + (code !== key ? '<div class="muted">MAC：' + 轉義(code) + '</div>' : '');
+    if (!D) return h + '<div class="muted">' + (L.載入中 ? '正在讀取記錄…' : '未能讀取記錄') + '</div></div>';
+    if (!ev || !ev.length) return h + '<div class="hist warn" style="color:#b91c1c;font-weight:bold;font-size:14px">' + D.days + ' 日內沒有紀錄</div></div>';
+    var last = ev[ev.length - 1];
+    h += '<div class="now">最新：' + 轉義(last[1]) + '　' + 轉義(last[0]) + (last[2] ? '　' + 轉義(last[2]) : '') + '</div>';
+    return h + ev.map(function (e) {
+      return '<div class="ev"><span class="tag ' + (記錄色[e[1]] || 't-hk') + '">' + 轉義(e[1]) + '</span>' + 轉義(e[0]) +
+        (e[2] ? '　' + 轉義(e[2]) : '') + (e[3] ? '<span class="d">' + 轉義(e[3]) + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }).join('');
+}
+
+/* ---------- 綁定 ---------- */
+['leader', 'cpe'].forEach(function (k) {
+  var el = $(k);
+  el.value = localStorage.getItem('scan_' + k) || '';
+  el.addEventListener('input', function () { localStorage.setItem('scan_' + k, el.value.trim()); 更新管理員(); });
+});
+更新管理員();
+document.querySelectorAll('[data-pm]').forEach(function (b) { b.addEventListener('click', function () { 切換專案(b.getAttribute('data-pm')); }); });
+document.querySelectorAll('[data-go]').forEach(function (b) { b.addEventListener('click', function () { 前往(b.getAttribute('data-go')); }); });
+document.querySelectorAll('[data-back]').forEach(function (b) { b.addEventListener('click', function () { 前往('home'); }); });
+$('reload').addEventListener('click', function () {
+  預載();
+  if (狀態.畫面 !== 'scan') return;
+  if (專案模式()) 載入專案();
+  else if (狀態.模式 === 'ack') 載入倉資料();
+  else if (狀態.模式 === 'log') 載入記錄();
+});
+function 手動加入() {
+  var el = $('manual');
+  準備聲音();
+  if (!el.value.trim()) { 顯示('請輸入機身編號', 'err'); 捲到(el, true); return; }
+  加入清單(el.value);
+  el.value = '';
+  if (觸控) el.focus(); else 聚焦輸入();   // 條碼槍（鍵盤模式）可連續掃描
+}
+/* 條碼槍：游標不在任何輸入框時（例如剛按了按鈕），掃描的字元自動送入 S/N 輸入框，Enter 即加入 */
+document.addEventListener('keydown', function (e) {
+  if (狀態.畫面 !== 'scan' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  var tag = e.target && e.target.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  var m = $('manual');
+  if (e.key && e.key.length === 1) { e.preventDefault(); 聚焦輸入(true); m.value += e.key; }
+  else if (e.key === 'Enter' && m.value.trim()) { e.preventDefault(); 手動加入(); }
+});
+$('lookup').addEventListener('click', 手動加入);
+$('manual').addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); 手動加入(); } });
+$('clearAll').addEventListener('click', 清除全部);
+$('writeAll').addEventListener('click', function () { 準備聲音(); 全部寫入(); });
+$('tbody').addEventListener('input', 表格輸入);
+$('tbody').addEventListener('change', 表格輸入);
+$('tbody').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-del]'); if (!b) return;
+  刪除列(b.closest('tr').getAttribute('data-sn'));
+});
+$('thead').addEventListener('change', function (e) {
+  if (e.target.id !== 'chkAll') return;
+  var on = e.target.checked;
+  狀態.清單.rows.forEach(function (r) { r.chk = on; });
+  document.querySelectorAll('#tbody [data-f=chk]').forEach(function (x) { x.checked = on; });
+  稍後存清單();
+});
+$('bulkReason').innerHTML = 原因選項('');
+$('bulkReason').addEventListener('change', function () { $('bulkOther').classList.toggle('hidden', this.value !== 自行輸入); });
+$('bulkApply').addEventListener('click', 套用原因);
+function 讀取日數() { if (狀態.模式 === 'log') 載入記錄(); else 載入倉資料(); }
+$('ackLoad').addEventListener('click', 讀取日數);
+$('ackDays').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 讀取日數(); } });
+$('logClear').addEventListener('click', function () { 狀態.記錄.顯示 = []; 繪記錄(); 顯示('已清除'); });
+$('torch').addEventListener('click', function () {
+  var t = 相機軌(); if (!t) return;
+  var on = !狀態.燈;
+  套用約束(t, { torch: on }).then(function () {
+    狀態.燈 = on; $('torch').textContent = on ? '燈（開）' : '燈';
+    安排重排影像();   // 相機重新設定後 iPhone 可能改變影像圖層：重新繪畫
+  }).catch(function () { 顯示('無法開啟燈', 'err'); });
+});
+$('zoom').addEventListener('input', function () {
+  var t = 相機軌(); if (t) 套用約束(t, { zoom: Number($('zoom').value) }).then(安排重排影像, function () {});
+});
+['loadedmetadata', 'loadeddata', 'resize', 'playing'].forEach(function (ev) {
+  // 影像大小改變（開始、燈、縮放、轉向、解像度改變）或開始播放：重新繪畫；影像尺寸改變（resize）時 iPhone 另強制重設填滿方式
+  $('video').addEventListener(ev, function () { if (ev === 'resize' || ev === 'playing') 狀態.影像版面 = ''; 版面影像(ev === 'resize'); });
+});
+if (window.ResizeObserver) new ResizeObserver(function () { 版面影像(); }).observe($('camBox'));
+$('matSend').addEventListener('click', 送出料);
+/* 使用者操作相機以外的任何地方（清單、輸入框、選單、按鈕）即暫停讀取，避免解碼拖慢操作；按相機畫面繼續 */
+function 操作(e) {
+  if (狀態.畫面 !== 'scan' || 狀態.暫停讀取 || 狀態.自動聚焦) return;
+  var t = e.target;
+  if (t && t.closest && t.closest('#camBox')) return;   // 相機畫面屬相機控制，不暫停
+  暫停讀取();
+}
+document.addEventListener('pointerdown', 操作, true);
+document.addEventListener('touchstart', 操作, { capture: true, passive: true });
+document.addEventListener('focusin', 操作, true);
+/* 相機畫面未能自動播放時，於使用者下次按畫面（屬使用者操作）時再次播放 */
+function 重試播放() { if (狀態.播放受阻 && 狀態.畫面 === 'scan') 播放影像(); }
+document.addEventListener('click', 重試播放, true);
+document.addEventListener('touchend', 重試播放, { capture: true, passive: true });
+$('camBox').addEventListener('click', function (e) {
+  if (e.target.closest('.camctl') || !狀態.暫停讀取) return;
+  準備聲音();
+  繼續讀取();
+});
+window.addEventListener('pagehide', function () { 立即存清單(); if (狀態.畫面 === 'scan') 停止相機(); });
+/* 程式轉到背景：完全停止相機；返回前景：以同一途徑重新開啟（系統於背景時多已中斷相機，舊串流不可再用） */
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) 立即存清單();
+  if (狀態.畫面 !== 'scan') return;
+  if (document.hidden) 停止相機();
+  else { 狀態.自動重開 = 0; 開始相機(); }
+});
+window.addEventListener('pageshow', function (e) {
+  if (e.persisted && 狀態.畫面 === 'scan' && !document.hidden && !狀態.串流 && !狀態.啟動中) { 狀態.自動重開 = 0; 開始相機(); }
+});
+
+/* ---------- 版面：以頂部實際高度計算相機畫面高度 ---------- */
+function 更新版面() {
+  var h = document.querySelector('header').offsetHeight;
+  if (h && 更新版面.h !== h) { 更新版面.h = h; document.documentElement.style.setProperty('--hh', h + 'px'); }
+  更新相機高度();
+}
+/** 相機畫面高度＝視窗實際高度（window.innerHeight）－相機畫面以上的高度（頂部＋主區上邊距）－相機畫面底至「清單（N 部）」標題列底的距離。
+ *  即捲回頂部時，相機下方只露出 S/N 輸入列及清單標題列；清單內容（列數、原因選單）不影響相機高度。最少 260 像素。 */
+var 相機最矮 = 260;
+function 更新相機高度() {
+  var cam = $('camBox'), head = 狀態.模式 === 'log' ? $('logHead') : document.querySelector('#cart .carthead');
+  if (狀態.畫面 !== 'scan' || !cam.offsetHeight || !head) return;
+  var vh = window.innerHeight;
+  if (!vh) return;
+  // 輸入時（部分 Android 瀏覽器彈出鍵盤會縮小視窗）不縮小相機畫面，避免畫面跳動
+  var a = document.activeElement;
+  if (更新相機高度.vh && vh < 更新相機高度.vh && a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox') return;
+  更新相機高度.vh = vh;
+  var cr = cam.getBoundingClientRect(), 頂 = cr.top + (window.pageYOffset || document.documentElement.scrollTop || 0);
+  var 下方 = head.getBoundingClientRect().bottom - cr.bottom + 4;   // 相機底至清單標題列底（另留 4 像素）
+  var h = Math.max(相機最矮, Math.floor(vh - 頂 - 下方));
+  if (Math.abs(h - cr.height) >= 1) cam.style.height = h + 'px';
+}
+更新版面();
+window.addEventListener('resize', function () { 更新版面(); 版面影像(); });
+window.addEventListener('orientationchange', function () { 更新版面(); setTimeout(function () { 更新版面(); 版面影像(); }, 300); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', function () { 更新版面(); 版面影像(); });
+if (window.ResizeObserver) new ResizeObserver(更新版面).observe(document.querySelector('header'));
+
+/* ---------- 只限直向 ---------- */
+function 鎖直向() {
+  try {
+    var o = screen.orientation;
+    if (o && o.lock) { var r = o.lock('portrait'); if (r && r.catch) r.catch(function () {}); }   // 一般瀏覽器分頁不能鎖定，改以覆蓋層提示
+  } catch (e) {}
+}
+鎖直向();
+document.addEventListener('click', function 首次() { 鎖直向(); document.removeEventListener('click', 首次); });
+/* iPhone（Safari、主畫面網頁程式、App 內瀏覽器）不能鎖定網頁方向：橫向時顯示覆蓋層（相機繼續在底下運作）。
+ * 不單靠 CSS 媒體查詢：由程式判斷並設定 html 的 rot-on／rot-off。
+ * 以視窗闊度是否明顯大於螢幕短邊判斷橫向，Android 彈出鍵盤令視窗變矮時不會被誤當作橫向；
+ * 平板電腦及桌面電腦（螢幕短邊大於 600 像素）不顯示。 */
+function 是橫向() {
+  var de = document.documentElement, w = de.clientWidth || window.innerWidth || 0, h = de.clientHeight || window.innerHeight || 0;
+  if (!w || !h || w <= h) return false;
+  var sw = screen.width || 0, sh = screen.height || 0, 短邊 = Math.min(sw, sh) || Math.min(w, h);
+  if (短邊 > 600) return false;
+  if (w > 短邊 * 1.15) return true;
+  var o = screen.orientation && screen.orientation.type;
+  if (o) return o.indexOf('landscape') === 0;
+  if (typeof window.orientation === 'number') return Math.abs(window.orientation) === 90;
+  return false;
+}
+function 更新直向提示() {
+  var on = 是橫向(), de = document.documentElement;
+  if (更新直向提示.on === on && de.classList.contains(on ? 'rot-on' : 'rot-off')) return;
+  更新直向提示.on = on;
+  de.classList.toggle('rot-on', on); de.classList.toggle('rot-off', !on);
+  if (!on && 狀態.畫面 === 'scan') 安排重排影像();   // 轉回直向：相機畫面大小已改變，重新計算填滿版面
+}
+/** 轉向時部分手機稍後才更新視窗尺寸：即時檢查一次，0.15 秒及 0.5 秒後再檢查 */
+function 直向檢查() {
+  更新直向提示();
+  clearTimeout(直向檢查.t1); clearTimeout(直向檢查.t2);
+  直向檢查.t1 = setTimeout(更新直向提示, 150); 直向檢查.t2 = setTimeout(更新直向提示, 500);
+}
+更新直向提示();
+['resize', 'orientationchange', 'pageshow', 'focus'].forEach(function (ev) { window.addEventListener(ev, 直向檢查); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', 直向檢查);
+try { if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', 直向檢查); } catch (e) {}
+try {
+  var 橫向查詢 = window.matchMedia && matchMedia('(orientation: landscape)');
+  if (橫向查詢) { if (橫向查詢.addEventListener) 橫向查詢.addEventListener('change', 直向檢查); else if (橫向查詢.addListener) 橫向查詢.addListener(直向檢查); }
+} catch (e) {}
+document.addEventListener('visibilitychange', function () { if (!document.hidden) 直向檢查(); });
+setInterval(function () { if (!document.hidden) 更新直向提示(); }, 1000);   // 後備：個別瀏覽器轉向時未必發出任何事件
+
+/* ---------- 啟動 ---------- */
+try { var 舊 = localStorage.getItem(預載鍵); if (舊) 建索引(JSON.parse(舊)); } catch (e) {}
+預載();
+</script>
+</body>
+</html>
